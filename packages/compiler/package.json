@@ -1,0 +1,44 @@
+{
+  "name": "newme",
+  "version": "0.0.3",
+  "main": "dist/newme.cjs.js",
+  "module": "dist/newme.esm.js",
+  "browser": "dist/newme.umd.js",
+  "types": "dist/index.d.ts",
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^11.0.1",
+    "@rollup/plugin-node-resolve": "^7.0.0",
+    "@types/node": "^18.15.11",
+    "readline-sync": "^1.4.10",
+    "rollup": "^2.60.0",
+    "rollup-plugin-typescript2": "^0.34.1",
+    "ts-node": "^10.9.1",
+    "typescript": "^4"
+  },
+  "scripts": {
+    "ini": "node scripts/init.js",
+    "build": "rm -rf ./dist && rollup -c",
+    "pub": "node scripts/publish.js",
+    "dev": "rollup -c -w"
+  },
+  "files": [
+    "dist"
+  ],
+  "license": "MIT",
+  "keywords": [
+    "newme",
+    "new-me",
+    "smooth",
+    "cat"
+  ],
+  "author": "smooth-cat",
+  "repository": {
+    "type": "git",
+    "url": "git+git@github.com:smooth-cat/newme.git"
+  },
+  "bugs": {
+    "url": "https://github.com/smooth-cat/newme/issues"
+  },
+  "homepage": "https://github.com/smooth-cat/newme#readme",
+  "description": "a newme template runtime compiler"
+}
