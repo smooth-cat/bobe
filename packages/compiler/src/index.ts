@@ -363,6 +363,7 @@ export class Compiler {
   };
 
   HookId = '_h_o_o_k_';
+  data: Record<any, any> = {};
   public code: string;
 
   constructor() {}
@@ -430,8 +431,15 @@ export class Compiler {
    * <declaration> ::= <tagName=token> <headerLine> <extensionLines>
    *  */
   declaration() {
-    const name = this.consume().value as string;
-    const _node: any = this.createNode(name);
+    this.consume();
+    const [isHook, value] = this._hook({});
+    let _node: any;
+    if (isHook) {
+      const { tree, data } = value();
+      _node = tree;
+    } else {
+      _node = this.createNode(value);
+    }
     this.headerLine(_node);
     this.extensionLines(_node);
     return _node;
@@ -475,36 +483,58 @@ export class Compiler {
    * 可以是空的，或者包含多个属性
    * <attributeList> ::= <attribute> <attributeList>
    *                    | ε
+   *
+   * <attribute> ::= <key> <=> <value or dataKey> <=> <value>
    */
   attributeList(_node: any) {
     let i = 0;
     let key = '';
-
+    let dataKey: any = '';
+    let defaultValue: any = undefined;
+    let prevIsAssign = false;
     // 是标识符 或 赋值 就 继续累积 props
     while (this.tokenIs(TokenType.Identifier, TokenType.Assign)) {
-      const restI = i % 3;
-      switch (restI) {
-        case 0:
-          key = this.token.value as string;
-          break;
+      const [isHook, value] = this._hook({});
 
-        case 2:
-          const value = this.token.value;
-          if (this.hook && value === this.HookId) {
-            const res = this.hook({
-              HookId: this.HookId,
-              i: this.hookI
-            });
-            this.setProp(_node, key, res, this.hookI);
-            this.hookI++;
-          } else {
-            this.setProp(_node, key, value);
-          }
-          break;
-        case 1:
-        default:
-          break;
+      if (value === '=') {
+        prevIsAssign = true;
       }
+      // 前一个不是等号，说明是 key
+      else if (!prevIsAssign) {
+        /*----------------- 开始下一个属性前进行赋值操作 -----------------*/
+        // 只声明 key 时 dataKey === key
+        if (!dataKey) {
+          dataKey = key;
+        }
+        // 三者都有
+        else if (defaultValue != null) {
+        }
+        // 第二个值是 dataKey 或 defaultValue，看其是否是 $ 开头
+        else {
+          const valueOrKey = dataKey;
+          if (valueOrKey[0] === '$') {
+            dataKey = dataKey.slice(1);
+          }
+          // 值
+          else {
+            defaultValue = dataKey;
+            dataKey = undefined;
+          }
+        }
+
+        this.setDataProp(this.data, dataKey, defaultValue);
+        this.setProp(_node, key, this.data[dataKey], this.hookI - 1);
+        key = value;
+      }
+      // 前一个是等号
+      else {
+        if (!dataKey) {
+          dataKey = value;
+        } else {
+          defaultValue = value;
+        }
+      }
+
       this.consume();
       i++;
     }
@@ -512,6 +542,13 @@ export class Compiler {
 
   config(opt: Partial<Pick<Compiler, 'createNode' | 'setProp' | 'hook' | 'HookId'>>) {
     Object.assign(this, opt);
+  }
+
+  createData(data: Record<any, any>) {
+    return data;
+  }
+  setDataProp(data: Record<any, any>, key: any, value: any) {
+    return (data[key] = value);
   }
 
   createNode(name: string) {
@@ -525,6 +562,7 @@ export class Compiler {
   }
 
   init(fragments: string | string[]) {
+    this.data = this.createData(this.data);
     if (typeof fragments === 'string') {
       this.code = fragments;
     } else {
@@ -534,6 +572,20 @@ export class Compiler {
   }
 
   hook: Hook;
+  _hook = (props: Partial<HookProps>): [boolean, any] => {
+    const value = this.token.value;
+    const isHook = value === this.HookId;
+    if (this.hook && isHook) {
+      const res = this.hook({
+        ...props,
+        HookId: this.HookId,
+        i: this.hookI
+      });
+      this.hookI++;
+      return [isHook, res];
+    }
+    return [isHook, value];
+  };
   hookI = 0;
 
   /** 子节点块：
