@@ -1,4 +1,4 @@
-import { isNum, Queue } from './util';
+import { isNum, Queue } from '../../shared/util';
 
 export enum TokenType {
   NewLine,

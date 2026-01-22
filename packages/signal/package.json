@@ -1,9 +1,9 @@
 {
-  "name": "newme",
+  "name": "newme-signal",
   "version": "0.0.3",
-  "main": "dist/newme.cjs.js",
-  "module": "dist/newme.esm.js",
-  "browser": "dist/newme.umd.js",
+  "main": "dist/newme-signal.cjs.js",
+  "module": "dist/newme-signal.esm.js",
+  "browser": "dist/newme-signal.umd.js",
   "types": "dist/index.d.ts",
   "devDependencies": {},
   "scripts": {
@@ -19,7 +19,7 @@
   ],
   "license": "MIT",
   "keywords": [
-    "newme",
+    "newme-signal",
     "new-me",
     "smooth",
     "cat"
@@ -33,5 +33,5 @@
     "url": "https://github.com/smooth-cat/newme/issues"
   },
   "homepage": "https://github.com/smooth-cat/newme#readme",
-  "description": "a newme template runtime compiler"
+  "description": "a fast signal lib"
 }
