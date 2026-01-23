@@ -6,11 +6,11 @@ type QueueItem<T> = {
 
 export class Queue<T> {
   _first?: QueueItem<T>;
-  first() {
+  get first() {
     return this._first?.v!;
   }
   _last?: QueueItem<T>;
-  last() {
+  get last() {
     return this._last?.v!;
   }
   len = 0;

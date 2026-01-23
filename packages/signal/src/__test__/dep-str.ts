@@ -11,7 +11,7 @@ export class DepStr {
    */
   dep(str: string) {
     const lines = str.split('\n');
-    const handled: string[] = [];
+    let handled: string[] = [];
     lines.forEach(line => {
       const chars = line.split('->');
 
@@ -26,7 +26,7 @@ export class DepStr {
         handled.push(`${name} <- ${nextName}`);
       });
     });
-    console.log('handled', handled);
+    handled = Array.from(new Set(handled))
     
 
     const state = [];
@@ -46,6 +46,8 @@ export class DepStr {
       }
       line = curr.recStart;
       while (line != null) {
+        const {upstream} = line
+        if(!upstream['abort']) return;
         const upName = reflect.get(line.upstream);
         state.push(`${upName} <- ${currName}`);
         line = line.nextRecLine;

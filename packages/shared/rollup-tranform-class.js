@@ -12,11 +12,11 @@ export default function ({ types: t }) {
       Program: {
         enter: (path, state) => {
           const fullCode = path.hub.file.code;
-          // console.log('代码', fullCode);
+          console.log('代码', fullCode);
           state.staticFns = [];
         },
         exit: (path, state) => {
-          console.log('收集到的静态方法', state.staticFns.length);
+          // console.log('收集到的静态方法', state.staticFns.length);
           path.unshiftContainer('body', state.staticFns);
         }
       },
@@ -98,7 +98,6 @@ export default function ({ types: t }) {
       },
       ClassMethod(path, state) {
         if (path.node.kind === 'constructor') {
-          console.log('constructor');
           const body = path.node.body.body;
           state.params = path.node.params;
           for (let i = 0; i < body.length; i++) {
@@ -123,7 +122,6 @@ export default function ({ types: t }) {
           const funcDec = t.functionDeclaration(fnId, params, body, generator, async);
 
           if (path.node.static) {
-            console.log('static');
 
             const left = t.memberExpression(t.identifier(className), t.identifier(functionName));
 
@@ -135,8 +133,6 @@ export default function ({ types: t }) {
 
             // 4. 将表达式包装成语句（Statement）
             const assign = t.expressionStatement(assignment);
-            
-            console.log(JSON.stringify(assign, undefined, 2));
             
             state.staticFns.push(funcDec, assign);
           } else {
@@ -158,7 +154,6 @@ export default function ({ types: t }) {
       },
       ClassProperty(path, state) {
         const stat = path.node.static;
-        console.log(stat);
       },
       NewExpression(path, state) {
         const binding = path.scope.getBinding(path.node.callee.name);

@@ -1,4 +1,4 @@
-export class CallOrder {
+export class Log {
   order: string[] = [];
 
   fnMap = new Map<string, Function>();
@@ -14,7 +14,7 @@ export class CallOrder {
   }
 
   call(name: string) {
-    this.fn(name)();
+    this.fn(name)?.();
   }
 
   toBe(...args: string[]) {
