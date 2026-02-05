@@ -1,0 +1,68 @@
+{
+  "name": "root",
+  "props": {},
+  "children": [
+    {
+      "name": "node1",
+      "props": {
+        "k1": 1
+      },
+      "children": [
+        {
+          "name": "node1_1",
+          "props": {
+            "k2": false,
+            "k3": 20
+          },
+          "children": [
+            {
+              "name": "node1_1_1",
+              "props": {
+                "k6": null
+              },
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "node2",
+      "props": {
+        "p1": "哈哈",
+        "p2": 2,
+        "p3": "你好"
+      },
+      "children": [
+        {
+          "name": "node2_1",
+          "props": {
+            "p4": 4,
+            "p5": {
+              "v": "🤡"
+            },
+            "p6": 6
+          },
+          "children": []
+        },
+        {
+          "name": "node2_2",
+          "props": {
+            "p7": 7,
+            "p8": "${{ v: '🤡' }}",
+            "p9": "aaa"
+          },
+          "children": []
+        }
+      ]
+    },
+    {
+      "name": "node3",
+      "props": {
+        "v1": 1,
+        "v2": 2
+      },
+      "children": []
+    }
+  ]
+}

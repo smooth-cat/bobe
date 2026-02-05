@@ -1,13 +1,20 @@
 import { isNum, Queue } from '../../shared/util';
 
 export enum TokenType {
-  NewLine,
-  Indent,
-  Dedent,
-  Identifier,
-  Assign,
-  Pipe,
-  Eof
+  NewLine = 0b0000_0000_0000_0000_0000_0000_0000_0001,
+  Indent = 0b0000_0000_0000_0000_0000_0000_0000_0010,
+  Dedent = 0b0000_0000_0000_0000_0000_0000_0000_0100,
+  Identifier = 0b0000_0000_0000_0000_0000_0000_0000_1000,
+  Assign = 0b0000_0000_0000_0000_0000_0000_0001_0000,
+  Pipe = 0b0000_0000_0000_0000_0000_0000_0010_0000,
+  Eof = 0b0000_0000_0000_0000_0000_0000_0100_0000
+}
+
+export enum LogicType {
+  If = 0b0000_0000_0000_0000_0000_0000_0000_0001,
+  ElseIf = 0b0000_0000_0000_0000_0000_0000_0000_0010,
+  Else = 0b0000_0000_0000_0000_0000_0000_0000_0100,
+  For = 0b0000_0000_0000_0000_0000_0000_0000_1000
 }
 
 export type BaseType = string | number | boolean | undefined | null;
@@ -29,7 +36,41 @@ export type HookProps = {
 export type Hook = (props: HookProps) => any;
 
 export class Compiler {
+  /** 当前字符 index */
   i = 0;
+  /** 当前 token */
+  token!: Token;
+  /** 缩进大小 默认 2 */
+  TabSize = 2;
+  /** 缩进字符 */
+  Tab = Array.from({ length: this.TabSize }, () => ' ').join('');
+  /** 匹配标识符 */
+  IdExp = /[\d\w\/]/;
+  /** Eof 标识符的值 */
+  EofId = `__EOF__${Date.now()}`;
+  /** 记录历史缩进的长度，相对于行首 */
+  dentStack: number[] = [0];
+  /** 回车后需要判断缩进 */
+  needIndent = false;
+  /** 用于跳过第一个节点前的空白字符串，以及生成基础缩进 */
+  isFirstToken = true;
+  /** 模板字符串动态节点的占位符 */
+  HookId = '_h_o_o_k_';
+  /** 用于渲染的数据 */
+  data: Record<any, any> = {};
+  /** 模板字符串动态节点索引 */
+  hookI = 0;
+  /** 代码 */
+  public code: string;
+  /**
+   * 有些标识符能产生多个 token
+   * 例如 dedent
+   * parent1
+   *   child
+   *     subChild
+   * parent2 <- 产生两个 dedent
+   */
+  waitingTokens = new Queue<Token>();
   get char() {
     return this.code[this.i];
   }
@@ -51,15 +92,10 @@ export class Compiler {
     return [prev, curr] as [prev: string, curr: string];
   }
 
-  token!: Token;
-  tokenIs = (...types: TokenType[]) => {
-    if (types.length === 1) return types[0] === this.token.type;
-    return types.includes(this.token.type);
-  };
   isEof = () => {
     // 刚开始时 token 不存在
     if (!this.token) return false;
-    return this.tokenIs(TokenType.Identifier) && this.token.value === this.EofId;
+    return this.token.type & TokenType.Identifier && this.token.value === this.EofId;
   };
   setToken = (type: TokenType, value: BaseType) => {
     this.token = {
@@ -70,27 +106,10 @@ export class Compiler {
     this.isFirstToken = false;
   };
 
-  TabSize = 2;
-  Tab = Array.from({ length: this.TabSize }, () => ' ').join('');
-  IdExp = /[\d\w\/]/;
-  EofId = `__EOF__${Date.now()}`;
   testId = (value: string) => {
     if (typeof value !== 'string') return false;
     return this.IdExp.test(value);
   };
-  /** 记录历史缩进的长度，相对于行首 */
-  dentStack: number[] = [0];
-  needIndent = false;
-  isFirstToken = true;
-  /**
-   * 有些标识符能产生多个 token
-   * 例如 dedent
-   * parent1
-   *   child
-   *     subChild
-   * parent2 <- 产生两个 dedent
-   */
-  waitingTokens = new Queue<Token>();
 
   nextToken() {
     // 已遍历到文件结尾
@@ -240,6 +259,7 @@ export class Compiler {
       };
       let value = '';
       let nextC;
+      // 构建缩进字符串
       while (1) {
         const nextChar = this.char;
         nextC = handleDent(nextChar);
@@ -249,56 +269,57 @@ export class Compiler {
           // 这种情况下需要 next ，即后续从 \n 重新开始匹配
           return true;
         }
-        // 比较长度，比上个 indent 长，缩进，比上个 indent 短，dedent
         if (!nextC) {
-          this.needIndent = false;
-          // 期望 firstToken 是 node，所以这里只要修改第一个节点的基础偏移值即可
-          if (this.isFirstToken) {
-            this.dentStack[0] = value.length;
-            return;
-          }
-          let currLen = value.length;
-          const indentHasLen = currLen > 0;
-          const prevLen = this.dentStack[this.dentStack.length - 1];
-          if (currLen > prevLen) {
-            this.dentStack.push(currLen);
-            this.setToken(TokenType.Indent, String(currLen));
-            return indentHasLen;
-          }
-          if (currLen < prevLen) {
-            // 一直找到最小
-            for (let i = this.dentStack.length - 2; i >= 0; i--) {
-              const expLen = this.dentStack[i];
-              const prevExpLen = this.dentStack[i + 1];
-              // 夹在两者说明缩进大小有问题
-              if (currLen > expLen && currLen < prevExpLen) {
-                throw SyntaxError('缩进大小不统一');
-              }
-              // current <= expLen 反缩进
-              this.dentStack.pop();
-              if (!this.token) {
-                this.setToken(TokenType.Dedent, String(expLen));
-              }
-              // 多余的 dent 缓存在 waitingTokens
-              else {
-                this.waitingTokens.push({
-                  type: TokenType.Dedent,
-                  typeName: TokenType[TokenType.Dedent],
-                  value: String(expLen)
-                });
-              }
-              if (currLen === expLen) {
-                break;
-              }
-            }
-            return indentHasLen;
-          }
-          // 同级则无视
-          return indentHasLen;
+          break;
         }
         value += nextC;
         this.next();
       }
+      // 比较长度，比上个 indent 长，缩进，比上个 indent 短，dedent
+      this.needIndent = false;
+      // 期望 firstToken 是 node，所以这里只要修改第一个节点的基础偏移值即可
+      if (this.isFirstToken) {
+        this.dentStack[0] = value.length;
+        return;
+      }
+      let currLen = value.length;
+      const indentHasLen = currLen > 0;
+      const prevLen = this.dentStack[this.dentStack.length - 1];
+      if (currLen > prevLen) {
+        this.dentStack.push(currLen);
+        this.setToken(TokenType.Indent, String(currLen));
+        return indentHasLen;
+      }
+      if (currLen < prevLen) {
+        // 一直找到最小
+        for (let i = this.dentStack.length - 2; i >= 0; i--) {
+          const expLen = this.dentStack[i];
+          const prevExpLen = this.dentStack[i + 1];
+          // 夹在两者说明缩进大小有问题
+          if (currLen > expLen && currLen < prevExpLen) {
+            throw SyntaxError('缩进大小不统一');
+          }
+          // current <= expLen 反缩进
+          this.dentStack.pop();
+          if (!this.token) {
+            this.setToken(TokenType.Dedent, String(expLen));
+          }
+          // 多余的 dent 缓存在 waitingTokens
+          else {
+            this.waitingTokens.push({
+              type: TokenType.Dedent,
+              typeName: TokenType[TokenType.Dedent],
+              value: String(expLen)
+            });
+          }
+          if (currLen === expLen) {
+            break;
+          }
+        }
+        return indentHasLen;
+      }
+      // 同级则无视
+      return indentHasLen;
     },
     identifier: (char: string) => {
       let value = char;
@@ -316,9 +337,11 @@ export class Compiler {
           ? null
           : value === 'undefined'
             ? undefined
-            : value === 'false' || value === 'true'
-              ? Boolean(value)
-              : value;
+            : value === 'false'
+              ? false
+              : value === 'true'
+                ? true
+                : value;
       this.setToken(TokenType.Identifier, realValue);
     },
     str: (char: string) => {
@@ -362,10 +385,6 @@ export class Compiler {
     }
   };
 
-  HookId = '_h_o_o_k_';
-  data: Record<any, any> = {};
-  public code: string;
-
   constructor() {}
 
   preprocess() {
@@ -384,7 +403,9 @@ export class Compiler {
   program() {
     // 初始化第一个 token
     this.consume();
-    return this.nodeList();
+    const _program = this.createRoot();
+    this.nodeList(_program);
+    return _program;
   }
 
   /**
@@ -393,24 +414,75 @@ export class Compiler {
    * <nodeList> ::= <node> <nodeList> <EOF|Dedent>
    *               |
    */
-  nodeList() {
-    const { tokenIs } = this;
-    const nodes: any[] = [];
+  nodeList(parent: any) {
     let _node: any;
+    let prevSibling: any;
+    let prevItem: any;
+    let anchor: any;
     while (1) {
       // 对于 Program    EOF 表示 list 遍历完成
       if (this.isEof()) {
-        return nodes;
+        return;
       }
 
       // 对于 childList  Dedent 表示 childList 遍历完成
-      if (tokenIs(TokenType.Dedent)) {
+      if (this.token.type & TokenType.Dedent) {
         this.consume();
-        return nodes;
+        return;
+      }
+      _node = this.node();
+
+      // 父节点是 if 采用 if.children.push 的方式采集
+      // 父节点不是 if 采用 insert 进行采集
+      const insert = parent.__logicType ? this.defaultInsert : this.insert.bind(this);
+      const remove = parent.__logicType ? this.defaultRemove : this.remove.bind(this);
+
+      // 子节点不是 if，直接插入单个子节点
+      if (!_node.__logicType) {
+        const realPrev = this.getPrevRealSibling(prevSibling);
+        const currItem = insert(parent, _node, realPrev, prevItem);
+        prevItem = currItem;
+        prevSibling = _node;
+        continue;
       }
 
-      _node = this.node();
-      nodes.push(_node);
+      if (prevSibling) {
+        _node.anchor = prevSibling;
+      }
+      // 没有 prevSibling 且父是 logic
+      else if (parent.__logicType) {
+        _node.anchor = parent;
+      }
+      // 父节点是普通节点，确实前面没有东西，anchor => null
+      else {
+      }
+
+      // 子节点是 if，将 child 插入到
+      if (_node.child && _node.condition()) {
+        let item = _node.child;
+        while (item != null) {
+          const { value: child } = item;
+          const realPrev = this.getPrevRealSibling(prevSibling);
+          const currItem = insert(parent, child, realPrev, prevItem);
+          item = item.next;
+          prevItem = currItem;
+          prevSibling = child;
+        }
+      }
+    }
+  }
+  /** 考虑到同级 逻辑模块 */
+  getPrevRealSibling(prevSibling: any) {
+    // 正常节点则直接返回
+    if (!prevSibling || !prevSibling.__logicType) {
+      return prevSibling;
+    }
+    let point = prevSibling;
+    while (point != null) {
+      if (point.lastChild) {
+        return point.lastChild.value;
+      }
+      point = point.anchor;
     }
   }
 
@@ -421,7 +493,7 @@ export class Compiler {
    *  */
   node() {
     const _declaration: any = this.declaration();
-    _declaration.children = this.childrenBlockOpt();
+    this.childrenBlockOpt(_declaration);
     return _declaration;
   }
 
@@ -431,18 +503,38 @@ export class Compiler {
    * <declaration> ::= <tagName=token> <headerLine> <extensionLines>
    *  */
   declaration() {
-    this.consume();
     const [isHook, value] = this._hook({});
     let _node: any;
     if (isHook) {
       const { tree, data } = value();
       _node = tree;
+    } else if (value === 'if') {
+
+      return this.ifDeclaration();
     } else {
       _node = this.createNode(value);
     }
+    this.consume();
     this.headerLine(_node);
     this.extensionLines(_node);
     return _node;
+  }
+
+  ifDeclaration() {
+    const ifIdentifier = this.consume();
+    const [isHook, value] = this._hook({});
+    const ifNode = {
+      __logicType: LogicType.If,
+      condition: value,
+      child: null,
+      lastChild: null,
+      anchor: null
+    };
+    const condition = this.consume();
+    console.log('if内容：');
+    console.log(this.code.slice(this.i));
+    const newLine = this.consume();
+    return ifNode;
   }
 
   /**
@@ -450,17 +542,16 @@ export class Compiler {
    *                    | ε
    */
   extensionLines(_node: any) {
-    const { tokenIs } = this;
     while (1) {
       //  终止条件，下一行不是 pipe
-      if (!tokenIs(TokenType.Pipe)) {
+      if (!(this.token.type & TokenType.Pipe)) {
         return;
       }
       // 开始解析 attributeList
       const PIPE = this.consume();
       this.attributeList(_node);
       // 文件结束了，通常不会发生
-      if (!tokenIs(TokenType.NewLine)) {
+      if (!(this.token.type & TokenType.NewLine)) {
         return;
       }
       // 换行
@@ -485,62 +576,76 @@ export class Compiler {
    *                    | ε
    *
    * <attribute> ::= <key> <=> <value or dataKey> <=> <value>
+   *
    */
   attributeList(_node: any) {
-    let i = 0;
-    let key = '';
-    let dataKey: any = '';
-    let defaultValue: any = undefined;
-    let prevIsAssign = false;
-    // 是标识符 或 赋值 就 继续累积 props
-    while (this.tokenIs(TokenType.Identifier, TokenType.Assign)) {
-      const [isHook, value] = this._hook({});
-
-      if (value === '=') {
-        prevIsAssign = true;
-      }
-      // 前一个不是等号，说明是 key
-      else if (!prevIsAssign) {
-        /*----------------- 开始下一个属性前进行赋值操作 -----------------*/
-        // 只声明 key 时 dataKey === key
-        if (!dataKey) {
+    let values: any[] = [];
+    let prevToken = undefined;
+    while (1) {
+      // 前者是 id ，后者不是 =，values 可以组成属性赋值
+      if (prevToken?.type === TokenType.Identifier && this.token.type !== TokenType.Assign) {
+        const [v1, v2, v3] = values;
+        const key: any = v1;
+        let dataKey, defaultVal;
+        if (v3 !== undefined) {
+          defaultVal = v3;
+          dataKey = v2;
+        }
+        // v2 有值，要区分其是 dataKey，还是默认值
+        else if (v2 !== undefined) {
+          // 区分 p=$abc 和 p=${haha} (编译时态)
+          if (typeof v2 === 'string' && v2[0] === '$' && v2[1] !== '{') {
+            dataKey = v2.slice(1);
+          } else {
+            defaultVal = v2;
+          }
+        }
+        // v2 没值
+        else {
           dataKey = key;
         }
-        // 三者都有
-        else if (defaultValue != null) {
+        let val = defaultVal;
+        if (dataKey) {
+          val = this.setDataProp(this.data, dataKey, defaultVal);
         }
-        // 第二个值是 dataKey 或 defaultValue，看其是否是 $ 开头
-        else {
-          const valueOrKey = dataKey;
-          if (valueOrKey[0] === '$') {
-            dataKey = dataKey.slice(1);
-          }
-          // 值
-          else {
-            defaultValue = dataKey;
-            dataKey = undefined;
-          }
-        }
-
-        this.setDataProp(this.data, dataKey, defaultValue);
-        this.setProp(_node, key, this.data[dataKey], this.hookI - 1);
-        key = value;
+        this.setProp(_node, key, val, this.hookI - 1);
+        const [isHook, value] = this._hook({});
+        values = [value];
       }
-      // 前一个是等号
-      else {
-        if (!dataKey) {
-          dataKey = value;
-        } else {
-          defaultValue = value;
-        }
+      // 先存储
+      else if (this.token.type !== TokenType.Assign) {
+        const [isHook, value] = this._hook({});
+        values.push(value);
       }
 
-      this.consume();
-      i++;
+      // 已经不是 attr 相关的字符了
+      if (!(this.token.type & (TokenType.Identifier | TokenType.Assign))) {
+        break;
+      }
+      prevToken = this.consume();
     }
   }
 
-  config(opt: Partial<Pick<Compiler, 'createNode' | 'setProp' | 'hook' | 'HookId'>>) {
+  /** 子节点块：
+   * 必须被缩进包裹
+   * <childrenBlockOpt> ::= INDENT <nodeList>
+   *                        | ε  /* 空（表示叶子节点，没有孩子）
+   *  */
+  childrenBlockOpt(parent: any) {
+    // 无 children
+    if (!(this.token.type & TokenType.Indent)) {
+      return [];
+    }
+    const INDENT = this.consume();
+    const list = this.nodeList(parent);
+    return list;
+  }
+
+  config(
+    opt: Partial<
+      Pick<Compiler, 'createRoot' | 'createNode' | 'setProp' | 'setDataProp' | 'setChildren' | 'hook' | 'HookId'>
+    >
+  ) {
     Object.assign(this, opt);
   }
 
@@ -551,12 +656,68 @@ export class Compiler {
     return (data[key] = value);
   }
 
+  setChildren(node: any, children: any[]) {
+    node.children = children;
+  }
+
   createNode(name: string) {
     return {
       name,
       props: {}
     };
   }
+  createRoot() {
+    return this.createNode('root');
+  }
+
+  insert(parent: any, node: any, prevSibling: any, prevItem: any) {
+    return this.defaultInsert(parent, node, prevSibling, prevItem);
+  }
+  defaultInsert(parent: any, node: any, prevSibling: any, prevItem: any) {
+    if (!parent.child) {
+      return (parent.child = parent.lastChild =
+        {
+          value: node,
+          next: null
+        });
+    }
+    const nextItem = prevItem.next;
+    const item = {
+      value: node,
+      next: nextItem
+    };
+    prevItem.next = item;
+    if (!nextItem) {
+      parent.lastChild = item;
+    }
+    return item;
+  }
+
+  remove(parent: any, node: any, prevSibling: any, prevItem: any) {
+    return this.defaultRemove(parent, node, prevSibling, prevItem);
+  }
+  // TODO: 默认改成 prevItem
+  defaultRemove(parent: any, node: any, prevSibling: any, prevItem: any) {
+    const currItem = prevItem.next;
+    const nextItem = currItem.next;
+    if (prevItem) {
+      if (nextItem) {
+        prevItem.next = nextItem;
+      } else {
+        prevItem.next = null;
+        parent.lastChild = prevItem;
+      }
+    } else {
+      if (nextItem) {
+        parent.child = nextItem;
+      } else {
+        parent.child = null;
+        parent.lastChild = null;
+      }
+    }
+    currItem.next = null;
+  }
+
   setProp(node: any, key: string, value: any, hookI?: number) {
     node.props[key] = value;
   }
@@ -586,79 +747,4 @@ export class Compiler {
     }
     return [isHook, value];
   };
-  hookI = 0;
-
-  /** 子节点块：
-   * 必须被缩进包裹
-   * <childrenBlockOpt> ::= INDENT <nodeList>
-   *                        | ε  /* 空（表示叶子节点，没有孩子）
-   *  */
-  childrenBlockOpt() {
-    // 无 children
-    if (!this.tokenIs(TokenType.Indent)) {
-      return;
-    }
-    const INDENT = this.consume();
-    const list = this.nodeList();
-    return list;
-  }
 }
-
-type UpdateItem = {
-  fn: (value: any) => any;
-  old: any;
-};
-
-let ast: any;
-const updateList: UpdateItem[] = [];
-const cmp = new Compiler();
-export function bobe(fragments: TemplateStringsArray, ...values: any[]) {
-  // 增量更新
-  if (ast) {
-    updateList.forEach(({ old, fn }, i) => {
-      const val = values[i];
-      if (val !== old) {
-        console.log('增量更新', val);
-        fn(val);
-      }
-    });
-    console.log(JSON.stringify(ast, undefined, 2));
-    return ast;
-  }
-  // 初始化
-  cmp.config({
-    hook({ i }) {
-      return values[i];
-    },
-    setProp(node: any, key: string, value: any, hookI?: number) {
-      const fn = (v: any) => {
-        node.props[key] = v;
-        if (hookI != null) {
-          updateList[hookI] = {
-            fn,
-            old: v
-          };
-        }
-      };
-      fn(value);
-    }
-  });
-  cmp.init(Array.from(fragments));
-  ast = cmp.program();
-  console.log(JSON.stringify(ast, undefined, 2));
-  return ast;
-}
-
-// bobe`
-// node1 k1=1
-//   node1_1 k2=false k3=3
-//     node1_1_1 k6=null
-// node2
-// | p1=1
-// | p2=2 p3='你好'
-//   node2_1
-//   | p4=4 p5=${{ v: '🤡' }} p6=6
-//   node2_2
-//   | p7=7 p8=\${{ v: '🤡' }} p9=aaa
-// node3 v1=1  v2=2 v3=undefined
-// `;

@@ -2,7 +2,7 @@ import { evt } from './global';
 import { PriorityQueue } from './priority-queue';
 import { CreateTaskProps, Task } from './type';
 
-
+/** TODO: 支持配置是否继续在同一任务中完成后续任务 */
 export class TaskQueue<T> {
   constructor(
     public callbackAble: CreateTaskProps<T>['callbackAble'],
