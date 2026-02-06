@@ -1,12 +1,14 @@
-import { Compiler } from './index';
+import { Interpreter } from './index';
 import { $, Scheduler } from 'aoye';
+import { Tokenizer } from './tokenizer';
 type UpdateItem = {
   fn: (value: any) => any;
   old: any;
 };
 
 export function bobe(fragments: TemplateStringsArray, ...values: any[]) {
-  const cmp = new Compiler();
+  const tokenizer = new Tokenizer();
+  const cmp = new Interpreter(tokenizer);
 
   // 初始化
   cmp.config({
@@ -37,19 +39,19 @@ export function bobe(fragments: TemplateStringsArray, ...values: any[]) {
 }
 
 const { ast, data } = bobe`
-node1 k1=1
-  node1_1 k2=false k3=$a=10
-    node1_1_1 k6=null
-node2
-| p1=$b='嘿嘿'
-| p2=2 p3='你好'
-  node2_1
-  | p4=4 p5=${{ v: '🤡' }} p6=6
-  node2_2
-  | p7=7 p8=\${{ v: '🤡' }} p9=aaa
-node3 v1=1  v2=2 v3=undefined
-if ${() => true}
-  node4 greet='成功'
+  node1 k1=1
+    node1_1 k2=false k3=$a=10
+      node1_1_1 k6=null
+  node2
+  | p1=$b='嘿嘿'
+  | p2=2 p3='你好'
+    node2_1
+    | p4=4 p5=${{ v: '🤡' }} p6=6
+    node2_2
+    | p7=7 p8=\${{ v: '🤡' }} p9=aaa
+  node3 v1=1  v2=2 v3=undefined
+  if ${() => false}
+    node4 greet='成功'
 `;
 data.a.v = 20;
 data.b.v = '哈哈';

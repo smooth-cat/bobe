@@ -43,6 +43,15 @@ export class Queue<T> {
     this._first = next;
     return first.v;
   }
+  clone() {
+    const c = new Queue<T>();
+    let point = this._first;
+    while (point != null) {
+      c.push(point.v);
+      point = point.next;
+    }
+    return c;
+  }
 }
 
 export function isNum(char: string) {
@@ -60,7 +69,7 @@ export function isNum(char: string) {
   );
 }
 
-export const genKey = (v: string|number) => `${v}-${Date.now()}-${Math.random()}` as unknown as number
+export const genKey = (v: string | number) => `${v}-${Date.now()}-${Math.random()}` as unknown as number;
 
 export class SortMap<T> {
   data: Record<string | symbol, T[]> = {};
@@ -76,6 +85,16 @@ export class SortMap<T> {
     }
     list.push(value);
   }
+}
+
+export function pick<T, K extends keyof T>(obj: T, keys: K[]) {
+  return keys.reduce(
+    (acc, key) => {
+      acc[key] = obj[key];
+      return acc;
+    },
+    {} as Pick<T, K>
+  );
 }
 
 // const queue = new Queue([1,2,3,4]);
