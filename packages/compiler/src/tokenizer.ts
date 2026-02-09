@@ -23,8 +23,6 @@ export class Tokenizer {
   dentStack: number[] = [0];
   /** 当前字符 index */
   i = 0;
-  /** 当前正在处理的 tokenIndex */
-  tokenI = -1;
   handledTokens: Token[] = [];
   /**
    * 有些标识符能产生多个 token
@@ -43,20 +41,19 @@ export class Tokenizer {
     return token;
   }
   // /** 恢复至某一个现场，进行 token 重算 */
-  // resume(_snapshot: ReturnType<Tokenizer['snapshot']>) {
-  //   this.token = undefined;
-  //   this.needIndent = false;
-  //   this.isFirstToken = true;
-  //   this.dentStack = [0];
-  //   Object.assign(this, _snapshot);
-  // }
-  // snapshot() {
-  //   return {
-  //     i: this.i,
-  //     tokenI: this.tokenI,
-  //     waitingTokens: this.waitingTokens.clone()
-  //   };
-  // }
+  resume(_snapshot: ReturnType<Tokenizer['snapshot']>) {
+    this.token = undefined;
+    this.needIndent = false;
+    this.isFirstToken = true;
+    this.dentStack = [0];
+    Object.assign(this, _snapshot);
+  }
+  snapshot() {
+    return {
+      i: this.i,
+      waitingTokens: this.waitingTokens.clone()
+    };
+  }
 
   skip() {
     const dentLen = this.dentStack[this.dentStack.length - 1];

@@ -5,10 +5,17 @@
 begin
 
 1. 如果条件是 true ，
-   1. 直接解析，
-   2. 并记录 tokens 和 values 到子 compiler，
-   3. 记录直接子节点到 if 节点
-2. 如果条件是 false，截取 fragments 和 values，初始化 compiler
+   1. `ifDeclaration`
+   2. `node` 直接解析
+   3. 子节点的 `nodeList` 记录直接子节点到 if 节点
+   4. 父节点的  `nodeList`   消费 if 节点中所有节点，添加到其名下
+2. 如果条件是 false，
+   1. `ifDeclaration`
+   2. `node` 不解析 通过 skip 跳过 if 的 tokens
+   3. `nodeList` 
+3. 公共逻辑
+   1. `ifDeclaration` 初始化 if 节点的 `Interpreter`
+   2. `node` 解析前  snapshot 保存当前 token 位置
 
 重新渲染
 

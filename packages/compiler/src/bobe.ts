@@ -12,6 +12,9 @@ export function bobe(fragments: TemplateStringsArray, ...values: any[]) {
 
   // 初始化
   cmp.config({
+    effect(fn) {
+      $(fn)();
+    },
     hook({ i }) {
       return values[i];
     },

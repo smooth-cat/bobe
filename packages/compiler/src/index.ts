@@ -71,19 +71,20 @@ export class Interpreter {
       // 父节点是普通节点，确实前面没有东西，anchor => null
       else {
       }
-
-      // 子节点是 if，将 child 插入到
-      if (_node.child) {
-        let item = _node.child;
-        while (item != null) {
-          const { value: child } = item;
-          const realPrev = this.getPrevRealSibling(prevSibling);
-          const currItem = insert(parent, child, realPrev, prevItem);
-          item = item.next;
-          prevItem = currItem;
-          prevSibling = child;
+      this.effect(() => {
+        // 子节点是 if，将 child 插入到
+        if (_node.child && _node.condition()) {
+          let item = _node.child;
+          while (item != null) {
+            const { value: child } = item;
+            const realPrev = this.getPrevRealSibling(prevSibling);
+            const currItem = insert(parent, child, realPrev, prevItem);
+            item = item.next;
+            prevItem = currItem;
+            prevSibling = child;
+          }
         }
-      }
+      });
     }
   }
   /** 考虑到同级 逻辑模块 */
@@ -149,13 +150,17 @@ export class Interpreter {
       anchor: null,
       skip: null
     };
-    const needMount = value();
-    if (needMount) {
-      const condition = this.tokenizer.consume();
-      const newLine = this.tokenizer.consume();
-    } else {
-      ifNode.skip = this.tokenizer.skip();
-    }
+    this.effect(() => {
+      const needMount = value();
+      if (needMount) {
+        const condition = this.tokenizer.consume();
+        const newLine = this.tokenizer.consume();
+      } else {
+        ifNode.skip = this.tokenizer.skip();
+        console.log('skip');
+        console.log(ifNode.skip);
+      }
+    })
     return ifNode;
   }
 
@@ -265,7 +270,10 @@ export class Interpreter {
 
   config(
     opt: Partial<
-      Pick<Interpreter, 'createRoot' | 'createNode' | 'setProp' | 'setDataProp' | 'setChildren' | 'hook' | 'HookId'>
+      Pick<
+        Interpreter,
+        'createRoot' | 'createNode' | 'setProp' | 'setDataProp' | 'setChildren' | 'hook' | 'HookId' | 'effect'
+      >
     >
   ) {
     Object.assign(this, opt);
@@ -344,6 +352,8 @@ export class Interpreter {
     node.props[key] = value;
   }
 
+  effect: (fn: () => any) => any;
+
   init(fragments: string | string[]) {
     this.data = this.createData(this.data);
     if (typeof fragments === 'string') {
@@ -360,14 +370,14 @@ export class Interpreter {
   hook: Hook;
   _hook = (props: Partial<HookProps>): [boolean, any] => {
     const value = this.tokenizer.token.value;
-    
+
     const isHook = typeof value === 'string' && value.indexOf(this.HookId) === 0;
     if (this.hook && isHook) {
-      const hookI = Number(value.slice(this.HookId.length)); 
+      const hookI = Number(value.slice(this.HookId.length));
       const res = this.hook({
         ...props,
         HookId: this.HookId,
-        i: hookI,
+        i: hookI
       });
       this.hookI++;
       return [isHook, res];
