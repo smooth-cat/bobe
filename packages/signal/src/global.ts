@@ -18,18 +18,22 @@ export const dirtyLeafs = new SortMap<Signal>();
 
 export enum State {
   Clean = 0,
-  SelfStopped = 0b0000_0000_0000_0000_0000_0001_0000_0000,
-  IsScope = 0b0000_0000_0000_0000_0000_0000_1000_0000,
+  /** watch 节点执行 watcher 时只连接 scope */
+  LinkScopeOnly = 0b0000_0000_0000_0000_0000_0000_0100_0000,
   /** 仅用于 scope 节点是否 abort */
-  ScopeAborted = 0b0000_0000_0000_0000_0000_0000_0100_0000,
   ScopeAbort = 0b0000_0000_0000_0000_0000_0000_0010_0000,
-  OutLink = 0b0000_0000_0000_0000_0000_0000_0001_0000,
-  Unknown = 0b0000_0000_0000_0000_0000_0000_0000_1000,
-  Dirty = 0b0000_0000_0000_0000_0000_0000_0000_0100,
-  Check = 0b0000_0000_0000_0000_0000_0000_0000_0010,
-  ScopeReady = 0b0000_0000_0000_0000_0000_0000_0000_0001
+  /** 仅用于 scope 节点是否 ready */
+  ScopeReady = 0b0000_0000_0000_0000_0000_0000_0001_0000,
+  /** 当前节点是 scope 节点 */
+  IsScope = 0b0000_0000_0000_0000_0000_0000_0000_1000,
+  /** 当前节点可能变化 */
+  Unknown = 0b0000_0000_0000_0000_0000_0000_0000_0100,
+  /** 当前节点有变化 */
+  Dirty = 0b0000_0000_0000_0000_0000_0000_0000_0010,
+  /** 当前节点正在进行 pull 预检处理 */
+  Check = 0b0000_0000_0000_0000_0000_0000_0000_0001
 }
 
 export const DirtyState = State.Unknown | State.Dirty;
-export const ScopeExecuted =  State.ScopeReady | State.ScopeAbort | State.ScopeAborted;
-export const ScopeAbort = State.ScopeAbort | State.ScopeAborted;
+export const ScopeExecuted = State.ScopeReady | State.ScopeAbort;
+export const ScopeAbort = State.ScopeAbort;

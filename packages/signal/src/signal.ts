@@ -99,7 +99,6 @@ export class Signal<T = any> implements Vertex {
       if (this.version === G.version) {
         return this.value;
       }
-      this.state &= ~State.OutLink;
 
       // 进 pullShallow 前重置 recEnd，让子 getter 重构订阅链表
       this.recEnd = null;
@@ -148,8 +147,6 @@ export class Signal<T = any> implements Vertex {
           return true;
         }
         node.state |= State.Check;
-        // 交给下游重新计算是否 引用外部节点
-        node.state &= ~State.OutLink;
       },
       complete: ({ node, notGoDeep: currentClean, walkedLine }) => {
         let noGoSibling = false;
