@@ -218,7 +218,7 @@ describe('watch 功能测试', () => {
     jest.runAllTimers();
   });
 
-  it('stop 功能测试', () => {
+  it(' dispose 功能测试', () => {
     const log = new Log();
     const signal = $(1);
 
@@ -299,5 +299,203 @@ describe('watch 功能测试', () => {
       log.toBe(); // 因为停止了，所以没有执行
       done();
     });
+  });
+
+  it('两层 watch 嵌套 - 第一层监听全局 signal，在回调中嵌套第二层 watch 监听内部 signal', () => {
+    const log = new Log();
+    const globalSignal1 = $(1);
+    const globalSignal2 = $(10);
+    const globalSignalForInner = $('for inner');
+    let innerSignal: any;
+    let innerWatcher: any;
+
+    // 第一层 watch：监听全局 signal1，并在回调中创建第二层 watch
+    const outWatcher = watch([() => globalSignal1()], () => {
+      const currentValue = globalSignal1();
+      const anotherValue = globalSignal2(); // 使用另一个全局 signal
+      innerSignal = $(currentValue * anotherValue); // 创建内部 signal
+
+      log.call(
+        `第一层 watch 执行: globalSignal1=${currentValue}, globalSignal2=${anotherValue}, innerSignal=${innerSignal()}`
+      );
+
+      // 第二层 watch：嵌套在第一层回调中，监听内部 signal
+      innerWatcher = watch([() => innerSignal(), globalSignalForInner], ({ val: innerVal }, { val: globalVal }) => {
+        log.call(`第二层 watch 执行: innerSignal=${innerVal} forInner=${globalVal}`);
+      });
+    });
+
+    /*----------------- 初始化阶段-----------------*/
+    log.toBe();
+    new DepStr({ globalSignal1, outWatcher })
+      // 没执行所以此时依赖只有一个
+      .depIs(`globalSignal1 -> outWatcher`)
+      // outWatcher 与 globalSignal1 统计，非外部 signal，即无外部引用
+      .outLinkIs(outWatcher, '');
+
+    /*----------------- 改变第一层监听的信号，触发第一层 watch，进而创建第二层 watch -----------------*/
+    globalSignal1(2);
+    log.toBe('第一层 watch 执行: globalSignal1=2, globalSignal2=10, innerSignal=20');
+    new DepStr({ globalSignalForInner, globalSignal1, globalSignal2, innerSignal, innerWatcher, outWatcher })
+      .depIs(
+        `
+        globalSignal1 -> outWatcher
+        innerSignal -> innerWatcher -> outWatcher
+        globalSignalForInner -> innerWatcher
+      `
+      )
+      .outLinkIs(outWatcher, 'globalSignalForInner')
+      .outLinkIs(innerSignal, '');
+
+    /*----------------- 再次改变第一层监听的信号，会重新创建第二层 watch -----------------*/
+    const memoInnerSignal = innerSignal;
+    const memoInnerWatcher = innerWatcher;
+    globalSignal1(3);
+    log.toBe('第一层 watch 执行: globalSignal1=3, globalSignal2=10, innerSignal=30');
+    /**
+     * 1. innerWatcher 被 dispose，其引用的 signal 遵循孤岛释放原则，
+     * 2. innerWatcher 没有外部引用
+     */
+    const dep = new DepStr({
+      memoInnerSignal,
+      memoInnerWatcher,
+      innerSignal,
+      innerWatcher,
+      outWatcher,
+      globalSignal1,
+      globalSignal2,
+      globalSignalForInner
+    })
+      .depIs(
+        `
+        globalSignal1 -> outWatcher
+        innerSignal -> innerWatcher -> outWatcher
+        globalSignalForInner -> innerWatcher
+      `
+      )
+      .outLinkIs(outWatcher, 'globalSignalForInner');
+
+    // 此时 innerSignal 为 30，改变它会触发第二层 watch
+
+    innerSignal(50);
+    log.toBe('第二层 watch 执行: innerSignal=50 forInner=for inner');
+
+    // 依赖树没变
+    dep
+      .depIs(
+        `
+        globalSignal1 -> outWatcher
+        innerSignal -> innerWatcher -> outWatcher
+        globalSignalForInner -> innerWatcher
+      `
+      )
+      .outLinkIs(outWatcher, 'globalSignalForInner');
+
+    // 释放 innerWatcher
+    innerWatcher();
+    dep.depIs(`globalSignal1 -> outWatcher`).outLinkIs(outWatcher, '');
+
+    // 释放 outWatcher
+    outWatcher();
+    dep.depIs(``).outLinkIs(outWatcher, '');
+  });
+
+  it('两层 watch 嵌套 先释放外层', () => {
+    const log = new Log();
+    const globalSignal1 = $(1);
+    const globalSignal2 = $(10);
+    const globalSignalForInner = $('for inner');
+    let innerSignal: any;
+    let innerWatcher: any;
+
+    // 第一层 watch：监听全局 signal1，并在回调中创建第二层 watch
+    const outWatcher = watch([() => globalSignal1()], () => {
+      const currentValue = globalSignal1();
+      const anotherValue = globalSignal2(); // 使用另一个全局 signal
+      innerSignal = $(currentValue * anotherValue); // 创建内部 signal
+
+      log.call(
+        `第一层 watch 执行: globalSignal1=${currentValue}, globalSignal2=${anotherValue}, innerSignal=${innerSignal()}`
+      );
+
+      // 第二层 watch：嵌套在第一层回调中，监听内部 signal
+      innerWatcher = watch([() => innerSignal(), globalSignalForInner], ({ val: innerVal }, { val: globalVal }) => {
+        log.call(`第二层 watch 执行: innerSignal=${innerVal} forInner=${globalVal}`);
+      });
+    });
+
+    /*----------------- 初始化阶段-----------------*/
+    log.toBe();
+    new DepStr({ globalSignal1, outWatcher })
+      // 没执行所以此时依赖只有一个
+      .depIs(`globalSignal1 -> outWatcher`)
+      // outWatcher 与 globalSignal1 统计，非外部 signal，即无外部引用
+      .outLinkIs(outWatcher, '');
+
+    /*----------------- 改变第一层监听的信号，触发第一层 watch，进而创建第二层 watch -----------------*/
+    globalSignal1(2);
+    log.toBe('第一层 watch 执行: globalSignal1=2, globalSignal2=10, innerSignal=20');
+    new DepStr({ globalSignalForInner, globalSignal1, globalSignal2, innerSignal, innerWatcher, outWatcher })
+      .depIs(
+        `
+        globalSignal1 -> outWatcher
+        innerSignal -> innerWatcher -> outWatcher
+        globalSignalForInner -> innerWatcher
+      `
+      )
+      .outLinkIs(outWatcher, 'globalSignalForInner')
+      .outLinkIs(innerSignal, '');
+
+    /*----------------- 再次改变第一层监听的信号，会重新创建第二层 watch -----------------*/
+    const memoInnerSignal = innerSignal;
+    const memoInnerWatcher = innerWatcher;
+    globalSignal1(3);
+    log.toBe('第一层 watch 执行: globalSignal1=3, globalSignal2=10, innerSignal=30');
+    /**
+     * 1. innerWatcher 被 dispose，其引用的 signal 遵循孤岛释放原则，
+     * 2. innerWatcher 没有外部引用
+     */
+    const dep = new DepStr({
+      memoInnerSignal,
+      memoInnerWatcher,
+      innerSignal,
+      innerWatcher,
+      outWatcher,
+      globalSignal1,
+      globalSignal2,
+      globalSignalForInner
+    })
+      .depIs(
+        `
+        globalSignal1 -> outWatcher
+        innerSignal -> innerWatcher -> outWatcher
+        globalSignalForInner -> innerWatcher
+      `
+      )
+      .outLinkIs(outWatcher, 'globalSignalForInner');
+
+    // 此时 innerSignal 为 30，改变它会触发第二层 watch
+
+    innerSignal(50);
+    log.toBe('第二层 watch 执行: innerSignal=50 forInner=for inner');
+
+    // 依赖树没变
+    dep
+      .depIs(
+        `
+        globalSignal1 -> outWatcher
+        innerSignal -> innerWatcher -> outWatcher
+        globalSignalForInner -> innerWatcher
+      `
+      )
+      .outLinkIs(outWatcher, 'globalSignalForInner');
+
+    // 释放 outWatcher innerSignal -> innerWatcher 不打断，由 State.ScopeAbort 控制不执行
+    outWatcher();
+    dep.depIs(`innerSignal -> innerWatcher -> outWatcher`).outLinkIs(outWatcher, '');
+
+    // 释放 innerWatcher
+    innerWatcher();
+    dep.depIs(``).outLinkIs(outWatcher, '');
   });
 });

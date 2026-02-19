@@ -57,7 +57,9 @@ export const watch = (values: Getter[], watcher: (...args: ValueDiff[]) => void,
       }
 
       if (mounted) {
-        runWithPulling(() => watcher(...vs), null);
+        s.state |= State.LinkScopeOnly;
+        watcher(...vs)
+        s.state &= ~State.LinkScopeOnly;
       }
       mounted = true;
     },

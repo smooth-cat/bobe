@@ -56,9 +56,10 @@ export class DepStr {
     handled.sort();
     state.sort();
     expect(state).toEqual(handled);
+    return this;
   }
 
-  outLinkIs( { ins } : {ins: Signal}, outLink: string) {
+  outLinkIs({ ins }: { ins: Signal }, outLink: string) {
     const links = outLink ? outLink.trim().split(/\s+/).sort() : [];
     let point = ins.outLink;
     const hasLinks = [];
@@ -69,5 +70,6 @@ export class DepStr {
     }
     hasLinks.sort();
     expect(hasLinks).toEqual(links);
+    return this;
   }
 }

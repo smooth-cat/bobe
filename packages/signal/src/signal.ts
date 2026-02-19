@@ -26,9 +26,9 @@ const markDeep = (signal: Signal) => {
       const isLeaf = !node.emitStart || node.emitStart.downstream === node.scope;
       if (isEffect) {
         node.state |= State.Unknown;
-      } 
+      }
       // 源节点是叶子节点，不做标记，后续可以通过 get 重新拉取到新值
-      else if(!isLeaf) {
+      else if (!isLeaf) {
         node.state |= State.Dirty;
       }
 
@@ -90,9 +90,14 @@ export class Signal<T = any> implements Vertex {
   pullRecurse(shouldLink = true) {
     let downstream = Signal.Pulling;
 
-    if (shouldLink && downstream) {
-      // 如果上游节点被 scope 管理了，解除管理
-      // unTrackIsland(this);
+    if (
+      // 1. 外部支持 link
+      shouldLink &&
+      // 2. 有下游
+      downstream &&
+      // 3. 下游是 watcher，不链接非 scope
+      !(downstream.state & State.LinkScopeOnly && !(this.state & State.IsScope))
+    ) {
       Line.link(this, downstream);
     }
     try {
