@@ -1,4 +1,4 @@
-import { base } from '../shared/jest.config.shared';
+import { base } from '../../config/jest';
 export default {
   ...base
 }

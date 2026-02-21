@@ -1,4 +1,4 @@
-import { isNum, Queue } from '../../shared/util';
+import { isNum, Queue } from 'bobe-shared';
 import { BaseType, Token, TokenType } from './type';
 
 export class Tokenizer {

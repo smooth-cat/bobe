@@ -1,10 +1,10 @@
-import { $, Dispose, effect, scope } from '../index';
-import { Scheduler } from '../schedule';
-import { Log } from '../../../shared/__test__/log-order';
+import { $, Dispose, effect, scope } from '#/index';
+import { Scheduler } from '#/schedule';
+import { Log } from '#test/log-order';
 import { DepStr } from './dep-str';
-import { ide } from '../util';
-import { evt, G } from '../global';
-import { Signal } from 'src/signal';
+import { ide } from '#/util';
+import { evt, G } from '#/global';
+import { Signal } from '#/signal';
 beforeEach(() => {
   jest.useFakeTimers();
 });

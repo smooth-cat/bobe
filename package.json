@@ -1,18 +1,28 @@
 {
+  "author": "smooth-cat",
   "devDependencies": {
-    "@babel/core": "^7.28.6",
-    "@babel/preset-env": "^7.28.6",
-    "@rollup/plugin-babel": "^5.3.1",
-    "@rollup/plugin-commonjs": "^11.0.1",
-    "@rollup/plugin-node-resolve": "^7.0.0",
+    "@babel/core": "^7.29.0",
+    "@babel/preset-env": "^7.29.0",
+    "@rollup/plugin-alias": "^6.0.0",
+    "@rollup/plugin-babel": "^6.1.0",
+    "@rollup/plugin-commonjs": "^29.0.0",
+    "@rollup/plugin-node-resolve": "^16.0.3",
     "@types/jest": "^30.0.0",
-    "@types/node": "^18.15.11",
+    "@types/node": "^18.19.130",
     "jest": "^30.2.0",
     "readline-sync": "^1.4.10",
-    "rollup": "^2.60.0",
-    "rollup-plugin-typescript2": "^0.34.1",
+    "rollup": "^4.58.0",
+    "rollup-plugin-dts": "^6.3.0",
+    "rollup-plugin-esbuild": "^6.2.1",
     "ts-jest": "^29.4.6",
-    "ts-node": "^10.9.1",
+    "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
+  },
+  "scripts": {
+    "new": "node ./scripts/new.js",
+    "build": "pnpm -r --filter \"!./packages/temp/**\" build",
+    "ver": "pnpm -r exec npm version patch",
+    "log": "npm login --registry=https://registry.npmjs.com",
+    "pub": "pnpm -r publish  --access=public --registry=\"https://registry.npmjs.com\" --no-git-checks"
   }
 }

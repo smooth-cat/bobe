@@ -1,6 +1,5 @@
-import { SortMap } from '../../shared/util';
+import { SortMap, BaseEvent as Event } from 'bobe-shared';
 import type { Signal } from './signal';
-import { BaseEvent as Event } from '../../shared/event';
 
 export const evt = new Event();
 

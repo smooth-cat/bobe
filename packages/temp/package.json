@@ -1,14 +1,11 @@
 {
-  "name": "aoye",
+  "name": "__name__",
   "version": "0.0.6",
-  "main": "dist/aoye.cjs.js",
-  "module": "dist/aoye.esm.js",
-  "browser": "dist/aoye.umd.js",
+  "main": "dist/__name__.cjs.js",
+  "module": "dist/__name__.esm.js",
+  "browser": "dist/__name__.umd.js",
   "types": "dist/index.d.ts",
-  "private": false,
-  "dependencies": {
-    "bobe-shared": "workspace:*"
-  },
+  "private": true,
   "devDependencies": {},
   "scripts": {
     "build": "rm -rf ./dist && rollup -c",
@@ -21,7 +18,7 @@
   ],
   "license": "MIT",
   "keywords": [
-    "aoye",
+    "__name__",
     "smooth",
     "cat"
   ],
@@ -34,5 +31,5 @@
     "url": "https://github.com/smooth-cat/bobe/issues"
   },
   "homepage": "https://github.com/smooth-cat/bobe#readme",
-  "description": "A fast signal lib"
+  "description": "__description__"
 }

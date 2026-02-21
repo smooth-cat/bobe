@@ -1,5 +1,5 @@
-import { $ } from '../index';
-import { Log } from '../../../shared/__test__/log-order';
+import { $ } from '#/index';
+import { Log } from '#test/log-order';
 import { DepStr } from './dep-str';
 
 describe('signal 基础功能测试', () => {
