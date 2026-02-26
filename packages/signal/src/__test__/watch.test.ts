@@ -5,15 +5,6 @@ import { DepStr } from './dep-str';
 import { ide } from '#/util';
 import { evt, G } from '#/global';
 import { Signal } from '#/signal';
-beforeEach(() => {
-  jest.useFakeTimers();
-});
-
-afterEach(() => {
-  jest.useRealTimers();
-  evt.clear();
-  G.scopeDisposeI = 0;
-});
 
 describe('watch 功能测试', () => {
   it('基本 watch 功能 - 监听单一信号变化', () => {
@@ -244,7 +235,6 @@ describe('watch 功能测试', () => {
       str.depIs(`watcher -> dispose`);
       done();
     });
-    jest.runAllTimers();
   });
 
   it(' dispose 功能测试', () => {

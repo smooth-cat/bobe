@@ -1,4 +1,4 @@
-import { $ } from '#/index';
+import { $, effect } from '#/index';
 import { Log } from '#test/log-order';
 import { DepStr } from './dep-str';
 
@@ -317,4 +317,17 @@ describe('signal 基础功能测试', () => {
       a -> b -> c
     `);
   });
+
+  it('循环引用', () => {
+    const log = new Log();
+    const a = $(1);
+    effect(() => {
+      const value = a.v;
+      log.call(`Set ${value + 1}`);
+      a.v = value + 1;
+    });
+    log.toBe('Set 2');
+    a.v = 3;
+    log.toBe('Set 4');
+  })
 });

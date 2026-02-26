@@ -1,13 +1,32 @@
+import { Queue } from 'bobe-shared';
 import { Line } from './line';
 import type { Signal } from './signal';
+export { Signal };
 
-export type Task = () => any;
+export type SignalType = 'ref' | 'auto' | 'proxy';
 
-export type CreateTaskProps<T> = {
-  callbackAble: (fn: Function) => any;
-  aIsUrgent: (a: Task & T, b: Task & T) => boolean;
+export enum Keys {
+  Iterator = '__Aoye_Iterator',
+  Raw = '__Aoye_Raw',
+}
+
+export type TaskControlReturn = {
+  /** 当前任务已完成 */
+  finished?: boolean;
+  /** 启动一个新 定时器 | RAF | Idle | 微任务 ... 等 */
+  startNewCallbackAble?: boolean;
+}
+
+export type Task = {
+  (): TaskControlReturn | void;
+  [key: string]: any;
 };
-export type ScheduleHandler = (effects: Signal[]) => any;
+
+export type CreateTaskProps = {
+  callbackAble: (fn: Function) => any;
+  aIsUrgent: (a: Task, b: Task) => boolean;
+};
+export type ScheduleHandler = (effects: Queue<Signal>) => any;
 export type SignalOpt<T> = {
   customPull?: () => T;
   scheduler?: string;
@@ -50,13 +69,12 @@ export type Mix<T = any> = {
   stop(): void;
 };
 
-
 export type ValueDiff = {
   old: any;
   val: any;
-}
+};
 
 export type Dispose = {
   (): void;
   ins: Signal;
-}
+};

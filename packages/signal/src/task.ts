@@ -1,22 +1,27 @@
 import { evt } from './global';
 import { PriorityQueue } from './priority-queue';
-import { CreateTaskProps, Task } from './type';
+import { CreateTaskProps, Task, TaskControlReturn } from './type';
+
+const DefaultTaskControlReturn: TaskControlReturn = {
+  finished: true,
+  startNewCallbackAble: true
+};
 
 /** TODO: 支持配置是否继续在同一任务中完成后续任务 */
-export class TaskQueue<T> {
+export class TaskQueue {
   constructor(
-    public callbackAble: CreateTaskProps<T>['callbackAble'],
-    public aIsUrgent: CreateTaskProps<T>['aIsUrgent']
+    public callbackAble: CreateTaskProps['callbackAble'],
+    public aIsUrgent: CreateTaskProps['aIsUrgent']
   ) {}
   isScheduling = false;
-  taskQueue: PriorityQueue<Task & T>;
-  static create<T>({ callbackAble, aIsUrgent }: CreateTaskProps<T>) {
-    const queue = new TaskQueue<Task & T>(callbackAble, aIsUrgent);
-    queue.taskQueue = new PriorityQueue<Task & T>(aIsUrgent);
+  taskQueue: PriorityQueue<Task>;
+  static create({ callbackAble, aIsUrgent }: CreateTaskProps) {
+    const queue = new TaskQueue(callbackAble, aIsUrgent);
+    queue.taskQueue = new PriorityQueue<Task>(aIsUrgent);
     return queue;
   }
 
-  pushTask(task: Task & T) {
+  pushTask(task: Task) {
     const { taskQueue, isScheduling } = this;
     taskQueue._add(task);
     if (!isScheduling) {
@@ -31,23 +36,22 @@ export class TaskQueue<T> {
     const fn = taskQueue.peek();
     if (!fn) return (this.isScheduling = false);
 
-    const hasRemain = fn();
-
-    // 未完成
-    if (hasRemain) {
-      this.callbackAble(this.scheduleTask.bind(this));
-      return;
-    }
+    let info: TaskControlReturn = fn() || {};
+    info = { ...DefaultTaskControlReturn, ...info };
 
     // 完成
-    taskQueue.poll();
-    evt.emit('one', fn)
-    if (taskQueue.size() === 0) {
-      evt.emit('done', fn)
-      return (this.isScheduling = false)
-    };
+    if (info.finished) {
+      taskQueue.poll();
+      if (taskQueue.size() === 0) {
+        return (this.isScheduling = false);
+      }
+    }
 
-    // 任务列表中还有任务
-    this.callbackAble(this.scheduleTask.bind(this));
+    // 开启新 启动器
+    if (info.startNewCallbackAble) {
+      this.callbackAble(this.scheduleTask.bind(this));
+    } else {
+      this.scheduleTask();
+    }
   }
 }

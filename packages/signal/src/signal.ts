@@ -1,3 +1,4 @@
+import { QueueItem } from 'bobe-shared';
 import { dfs } from './dfs';
 import { dirtyLeafs, DirtyState, G, ScopeExecuted, State } from './global';
 import { Line } from './line';
@@ -6,44 +7,62 @@ import { runWithPulling, unlinkRecWithScope } from './scope';
 import { SignalOpt, Vertex } from './type';
 
 const markDeep = (signal: Signal) => {
-  let level = 0;
+  let level = 0,
+    firstEffectItem: QueueItem<Signal>,
+    lastEffectItem: QueueItem<Signal>,
+    updatedSchedulers = new Set<string>();
   dfs(signal, {
     isUp: false,
     begin: ({ node }) => {
       /**
-       * 1. 当前节点在预检  应该跳过
-       * 2. 当前节点       已标记
-       * 3. 当前节点       已放弃
+       * 1. 已放弃节点， 或 scope，不做标记
+       * 2. scope 节点
        */
-      // console.log('markBegin', node.id);
-
-      if (node.state & (State.Check | State.Unknown | State.Dirty) || node.isDisabled()) {
+      if (node.isDisabled()) {
         return true;
       }
+
+      const inPullingArea = node.state & State.Pulling;
+      /** 在 Pulling 结束后将 PullingUnknown 转为 Unknown */
+      const Unknown = inPullingArea ? State.PullingUnknown : State.Unknown;
 
       const isEffect = level > 0;
       // 没有下游，或者下游是 scope
       const isLeaf = !node.emitStart || node.emitStart.downstream === node.scope;
       if (isEffect) {
-        node.state |= State.Unknown;
+        node.state |= Unknown;
       }
       // 源节点是叶子节点，不做标记，后续可以通过 get 重新拉取到新值
       else if (!isLeaf) {
         node.state |= State.Dirty;
       }
 
-      if (isLeaf && isEffect) {
-        dirtyLeafs.add(node.scheduler, node);
+      // 当前 effect 正在执行，不收集到 Queue
+      if (isLeaf && isEffect && !inPullingArea) {
+        const key = node.scheduler;
+        const instance = _scheduler[key];
+        const item = instance.addEffect(node);
+        if (!firstEffectItem) {
+          firstEffectItem = item;
+        }
+        lastEffectItem = item;
+        updatedSchedulers.add(key);
       }
       level++;
     }
   });
-  for (const key in dirtyLeafs.data) {
-    const effects = dirtyLeafs.data[key];
-    const scheduler = _scheduler[key];
-    scheduler(effects);
+  for (const key of updatedSchedulers) {
+    const instance = _scheduler[key];
+    instance?.onOneSetEffectsAdded(instance.effectQueue.subRef(firstEffectItem, lastEffectItem), instance.effectQueue);
   }
-  dirtyLeafs.clear();
+};
+
+const pullingPostprocess = (node: Signal) => {
+  node.state &= ~State.Pulling;
+  if (node.state & State.PullingUnknown) {
+    node.state &= ~State.PullingUnknown;
+    node.state |= State.Unknown;
+  }
 };
 
 export class Signal<T = any> implements Vertex {
@@ -88,6 +107,7 @@ export class Signal<T = any> implements Vertex {
    * 递归拉取负责建立以来链
    */
   pullRecurse(shouldLink = true) {
+    G.PullingRecurseDeep++;
     let downstream = G.PullingSignal;
     const isScope = this.state & State.IsScope;
 
@@ -108,7 +128,7 @@ export class Signal<T = any> implements Vertex {
 
       // 进 pullShallow 前重置 recEnd，让子 getter 重构订阅链表
       this.recEnd = null;
-
+      this.state |= State.Pulling;
       G.PullingSignal = this;
       this.clean?.();
       this.clean = null;
@@ -130,10 +150,12 @@ export class Signal<T = any> implements Vertex {
       console.error('计算属性报错这次不触发，后续状态可能出错', error);
       return this.value;
     } finally {
+      pullingPostprocess(this);
       // 本 getter 执行完成时上游 getter 通过 link，完成对下游 recLines 的更新
       const toDel = this.recEnd?.nextRecLine;
       unlinkRecWithScope(toDel);
       G.PullingSignal = downstream;
+      G.PullingRecurseDeep--;
     }
   }
 
@@ -155,10 +177,10 @@ export class Signal<T = any> implements Vertex {
          * 2. 干净
          * 3. 放弃 或者为 scope 节点
          */
-        if (node.state & State.Check || !(node.state & DirtyState) || node.isDisabled()) {
+        if (node.state & State.Pulling || !(node.state & DirtyState) || node.isDisabled()) {
           return true;
         }
-        node.state |= State.Check;
+        node.state |= State.Pulling;
       },
       complete: ({ node, notGoDeep: currentClean, walkedLine }) => {
         let noGoSibling = false;
@@ -173,7 +195,8 @@ export class Signal<T = any> implements Vertex {
           if (!node.recStart && node.value !== node.nextValue) {
             node.markDownStreamsDirty();
             node.state &= ~State.Dirty;
-            node.state &= ~State.Check;
+            // 源接节点不需要做 PullingUnknown => Unknown 转换
+            node.state &= ~State.Pulling;
             return;
           }
           // 预检数据
@@ -198,7 +221,7 @@ export class Signal<T = any> implements Vertex {
           node.state &= ~State.Unknown;
         }
         node.version = G.version;
-        node.state &= ~State.Check;
+        pullingPostprocess(node);
         return noGoSibling;
       }
     });
@@ -246,6 +269,7 @@ export class Signal<T = any> implements Vertex {
     markDeep(this as any);
   }
 
+  /** 返回值为 true 表示已处理 */
   runIfDirty() {
     this.state & (State.Unknown | State.Dirty) && this.v;
   }

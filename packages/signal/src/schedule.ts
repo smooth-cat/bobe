@@ -1,43 +1,100 @@
+import { Queue, QueueItem } from 'bobe-shared';
 import type { Signal } from './signal';
 import { TaskQueue } from './task';
-import { ScheduleHandler } from './type';
+import { Task } from './type';
 import { macro, micro } from './util';
 
-export enum Scheduler {
-  Sync = '__Sync_',
-  Layout = '__Layout_',
-  Micro = '__Micro_',
-  Macro = '__Macro_'
+export abstract class Scheduler {
+  static Sync = '__Sync_';
+  static Layout = '__Layout_';
+  static Micro = '__Micro_';
+  static Macro = '__Macro_';
+
+  effectQueue: Queue<Signal> = new Queue();
+  addEffect(effect: Signal) {
+    const item = this.effectQueue.push(effect);
+    this.onEffectAdded?.(effect, item, this.effectQueue);
+    return item;
+  }
+
+  /**
+   * 用户可实现
+   * 一个 effect 加入队列后的 回调
+   *  */
+  // @ts-ignore
+  onEffectAdded(effect: Signal, item: QueueItem<Signal>, queue: Queue<Signal>): void;
+
+  /**
+   * 用户可实现
+   * 一次 set 操作导致的所有 effect 加入队列后的 回调
+   * */
+  // @ts-ignore
+  onOneSetEffectsAdded(subQueue: Queue<Signal>, queue: Queue<Signal>): void;
 }
 
-export const _scheduler: Record<string | symbol, ScheduleHandler> = {
-  [Scheduler.Sync]: defaultScheduler,
-  [Scheduler.Micro]: microScheduler,
-  [Scheduler.Macro]: macroScheduler,
-  [Scheduler.Layout]: layoutScheduler
-};
-export const scheduler = (key: string | symbol, value: ScheduleHandler) => (_scheduler[key] = value);
-
-function defaultScheduler(effects: Signal[]) {
-  for (const effect of effects) {
-    effect.runIfDirty();
+class SyncScheduler extends Scheduler {
+  onOneSetEffectsAdded(subQueue: Queue<Signal>, queue: Queue<Signal>): void {
+    subQueue.forEach((effect, item) => {
+      // 循环依赖时会跳过已经在执行的 effect
+      effect.runIfDirty();
+      subQueue.delete(item);
+    });
   }
 }
 
-let microSTaskQueue: TaskQueue<{ time: number }>;
-let macroSTaskQueue: TaskQueue<{ time: number }>;
-let layoutSTaskQueue: TaskQueue<{ time: number }>;
-function microScheduler(effects: Signal[]) {
-  microSTaskQueue = microSTaskQueue || TaskQueue.create({ callbackAble: micro, aIsUrgent: (a, b) => a.time < b.time });
-  microSTaskQueue.pushTask(defaultScheduler.bind(null, effects));
+class MicroScheduler extends Scheduler {
+  taskQueue = TaskQueue.create({ callbackAble: micro, aIsUrgent: (a, b) => a.time < b.time });
+  onOneSetEffectsAdded(subQueue: Queue<Signal>, queue: Queue<Signal>): void {
+    const task: Task = () => {
+      subQueue.forEach((effect, item) => {
+        // 循环依赖时会跳过已经在执行的 effect
+        effect.runIfDirty();
+        subQueue.delete(item);
+      });
+      return {
+        finished: true,
+        startNewCallbackAble: false
+      };
+    };
+    task.time = Date.now();
+    this.taskQueue.pushTask(task);
+  }
 }
 
-function macroScheduler(effects: Signal[]) {
-  macroSTaskQueue = macroSTaskQueue || TaskQueue.create({ callbackAble: macro, aIsUrgent: (a, b) => a.time < b.time });
-  macroSTaskQueue.pushTask(defaultScheduler.bind(null, effects));
+class MacroScheduler extends Scheduler {
+  taskQueue = TaskQueue.create({ callbackAble: macro, aIsUrgent: (a, b) => a.time < b.time });
+  onOneSetEffectsAdded(subQueue: Queue<Signal>, queue: Queue<Signal>): void {
+    const task = () => {
+      subQueue.forEach((effect, item) => {
+        // 循环依赖时会跳过已经在执行的 effect
+        effect.runIfDirty();
+        subQueue.delete(item);
+      });
+    };
+    task.time = Date.now();
+    this.taskQueue.pushTask(task);
+  }
 }
-function layoutScheduler(effects: Signal[]) {
-  layoutSTaskQueue =
-    layoutSTaskQueue || TaskQueue.create({ callbackAble: macro, aIsUrgent: (a, b) => a.time < b.time });
-  layoutSTaskQueue.pushTask(defaultScheduler.bind(null, effects));
+
+class LayoutScheduler extends Scheduler {
+  taskQueue = TaskQueue.create({ callbackAble: macro, aIsUrgent: (a, b) => a.time < b.time });
+  onOneSetEffectsAdded(subQueue: Queue<Signal>, queue: Queue<Signal>): void {
+    const task = () => {
+      subQueue.forEach((effect, item) => {
+        // 循环依赖时会跳过已经在执行的 effect
+        effect.runIfDirty();
+        subQueue.delete(item);
+      });
+    };
+    task.time = Date.now();
+    this.taskQueue.pushTask(task);
+  }
 }
+
+export const _scheduler: Record<string | symbol, Scheduler> = {
+  [Scheduler.Sync]: new SyncScheduler(),
+  [Scheduler.Micro]: new MicroScheduler(),
+  [Scheduler.Macro]: new MacroScheduler(),
+  [Scheduler.Layout]: new LayoutScheduler()
+};
+export const registerScheduler = (key: string | symbol, Ctor: new () => Scheduler) => (_scheduler[key] = new Ctor());

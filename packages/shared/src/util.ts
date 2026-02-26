@@ -1,4 +1,4 @@
-type QueueItem<T> = {
+export type QueueItem<T> = {
   v: T;
   prev?: QueueItem<T>;
   next?: QueueItem<T>;
@@ -15,39 +15,99 @@ export class Queue<T> {
   }
   len = 0;
   push(it: T) {
-    this.len++;
-    const { _last: last } = this;
-    const item = { v: it } as QueueItem<T>;
-    if (!last) {
-      this._first = this._last = item;
-      return;
-    }
-    item.prev = this._last!;
-    last.next = item;
-    this._last = item;
+    return this.insetAfter(it, this._last);
   }
-  shift() {
-    const { _first: first } = this;
-    if (!first) return undefined;
-    this.len--;
 
-    const { next } = first;
-    first.next = undefined;
+  insetAfter(it: T, anchor: QueueItem<T>) {
+    const item = { v: it, prev: null, next: null } as QueueItem<T>;
+    const prev = anchor || this._first?.prev;
+    const after = prev ? prev.next : this._first;
+    item.prev = prev;
+    item.next = after;
 
-    if (next) {
-      next.prev = undefined;
+    if (prev) {
+      // 子 Queue 逻辑
+      if (prev.next === this._first) this._first = item;
+      prev.next = item;
     } else {
-      this._last = undefined;
+      this._first = item;
     }
-
-    this._first = next;
-    return first.v;
+    if (after) {
+      if (after.prev === this._last) this._last = item;
+      after.prev = item;
+    } else {
+      this._last = item;
+    }
+    this.len++;
+    return item;
   }
+
+  delete(item: QueueItem<T>) {
+    const { prev, next } = item;
+    if (prev) {
+      if (item === this._first) this._first = next;
+      prev.next = next;
+    } else {
+      this._first = next;
+    }
+    if (next) {
+      if (item === this._last) this._last = prev;
+      next.prev = prev;
+    } else {
+      this._last = prev;
+    }
+    item.next = null;
+    item.prev = null;
+    this.len--;
+    return item.v;
+  }
+
+  static forEach<V>(firstItem: QueueItem<V>, lastItem: QueueItem<V>, fn: (value: V, item: QueueItem<V>) => void) {
+    if (!firstItem) return;
+    let point = firstItem;
+    let next = point.next;
+    while (true) {
+      fn(point.v, point);
+      if (!next || point === lastItem) {
+        break;
+      }
+      point = next;
+      next = point.next;
+    }
+  }
+
+  forEach(fn: (value: T, item: QueueItem<T>) => void) {
+    if (!this._first) return;
+    let point = this._first;
+    let next = point.next;
+    while (true) {
+      fn(point.v, point);
+      if (!next || point === this._last) {
+        break;
+      }
+      point = next;
+      next = point.next;
+    }
+  }
+  /** TODO: Queue.len 不准确 */
+  subRef(firstItem: QueueItem<T>, lastItem: QueueItem<T>) {
+    const subQueue = new Queue<T>()
+    subQueue._first = firstItem;
+    subQueue._last = lastItem;
+    return subQueue;
+  }
+
+  shift() {
+    return this.delete(this._first);
+  }
+
   clone() {
     const c = new Queue<T>();
     let point = this._first;
-    while (point != null) {
+    if (!point) return c;
+    while (true) {
       c.push(point.v);
+      if (point === this._last) break;
       point = point.next;
     }
     return c;
@@ -72,7 +132,7 @@ export function isNum(char: string) {
 export const genKey = (v: string | number) => `${v}-${Date.now()}-${Math.random()}` as unknown as number;
 
 export class SortMap<T> {
-  data: Record<string | symbol, T[]> = {};
+  data: Record<string | symbol, Queue<T>> = {};
   clear() {
     this.data = {};
   }
@@ -80,10 +140,10 @@ export class SortMap<T> {
     const { data } = this;
     let list = data[key];
     if (!list) {
-      list = [];
+      list = new Queue<T>();
       data[key] = list;
     }
-    list.push(value);
+    return list.push(value);
   }
 }
 

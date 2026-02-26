@@ -2,30 +2,47 @@ import { State } from './global';
 import { Scheduler } from './schedule';
 import { dispose } from './scope';
 import { Signal } from './signal';
-import { Dispose, Getter, Mix, ValueDiff } from './type';
+import { Dispose, Getter, Mix, SignalType, ValueDiff } from './type';
+import { deepSignal } from './watchable';
 
-export { Scheduler, scheduler } from './schedule';
+export { Scheduler, registerScheduler } from './schedule';
 export { TaskQueue } from './task';
 export { runWithPulling, clean } from './scope';
 export * from './type';
-
 const DefaultCustomSignalOpt = {
-  scheduler: Scheduler.Sync,
-  isScope: false,
-  immediate: true
+  /** 三种模式
+   * 1. auto:   根据值类型自动判断 默认
+   * 2. ref:    对任何值使用 {v: xxx} 进行包装
+   * 3. proxy:  使用 proxy 进行包装
+   */
+  mode: 'auto' as SignalType,
+  /** 是否深度响应式 */
+  deep: true
 };
+
+const DefaultCustomEffectOpt = {
+  scheduler: Scheduler.Sync,
+  immediate: true,
+  isScope: true
+};
+
 export type CustomSignalOpt = Partial<typeof DefaultCustomSignalOpt>;
+export type CustomEffectOpt = Partial<typeof DefaultCustomEffectOpt>;
 
 export type CreateSignal = {
   <T extends (...args: any[]) => any>(get: T, opt?: CustomSignalOpt): Signal<ReturnType<T>>;
+  <T extends object>(value: T, opt?: CustomSignalOpt): T;
   <T = any>(value: T, opt?: CustomSignalOpt): Signal<T>;
 };
 
-export const $: CreateSignal = (init?: unknown) => {
+export const $: CreateSignal = (init?: unknown, opt: CustomSignalOpt = {}) => {
+  opt = { ...DefaultCustomSignalOpt, ...opt };
   let intiValue: any, customPull: Getter;
-  if (init instanceof Function) {
+  if (typeof init === 'function') {
     intiValue = null;
     customPull = init as Getter;
+  } else if (opt.mode !== 'ref' && typeof init === 'object' && init !== null) {
+    return deepSignal(init, opt.deep);
   } else {
     intiValue = init;
   }
@@ -34,44 +51,13 @@ export const $: CreateSignal = (init?: unknown) => {
     isScope: false,
     customPull
   });
-
   return s;
-};
-
-/** @deprecated */
-const watch = (values: Getter[], watcher: (...args: ValueDiff[]) => void, opt: CustomSignalOpt = {}) => {
-  let mounted = false;
-  const vs: ValueDiff[] = Array.from({ length: values.length }, () => ({ old: null, val: null }));
-  const s = Signal.create(null, {
-    customPull() {
-      for (let i = 0; i < values.length; i++) {
-        const value = values[i]();
-        vs[i].old = vs[i].val;
-        vs[i].val = value;
-      }
-
-      if (mounted) {
-        s.state |= State.LinkScopeOnly;
-        watcher(...vs);
-        s.state &= ~State.LinkScopeOnly;
-      }
-      mounted = true;
-    },
-    scheduler: Scheduler.Sync,
-    isScope: true,
-    ...opt
-  });
-
-  s.v;
-  const bound = dispose.bind(s);
-  bound.ins = s;
-  return bound;
 };
 
 export const effect = (
   customPull: (...args: ValueDiff[]) => void,
-  depOrOpt?: Signal<any>[] | CustomSignalOpt,
-  opt?: CustomSignalOpt
+  depOrOpt?: Signal<any>[] | CustomEffectOpt,
+  opt?: CustomEffectOpt
 ) => {
   /*----------------- 自动收集 -----------------*/
   const hasDep = Array.isArray(depOrOpt);
@@ -143,8 +129,16 @@ export const scope = (customPull: () => void) => {
  * @prop scheduler: (runIfDirty, effect) => void 执行 runIfDirty 定制触发 effect 时机
  * @prop scope: 用于统一释放 effect link 的作用域 默认是 defaultScope 可以全局获取
  */
-export const customEffect = (opt?: CustomSignalOpt) => {
+export const customEffect = (opt?: CustomEffectOpt) => {
   return ((init: any, innerOpt: any = {}) => {
     return effect(init, { ...opt, ...innerOpt });
   }) as typeof effect;
+};
+
+export const isSignal = (value: unknown): value is Signal => {
+  return value instanceof Signal;
+};
+
+export const isScope = (value: any): boolean => {
+  return value instanceof Signal;
 };
