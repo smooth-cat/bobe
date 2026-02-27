@@ -6,8 +6,9 @@ export { Signal };
 export type SignalType = 'ref' | 'auto' | 'proxy';
 
 export enum Keys {
-  Iterator = '__Aoye_Iterator',
-  Raw = '__Aoye_Raw',
+  Iterator = '__AOYE_ITERATOR',
+  Raw = '__AOYE_RAW',
+  Deep = '__AOYE_DEEP',
 }
 
 export type TaskControlReturn = {

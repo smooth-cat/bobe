@@ -1,5 +1,6 @@
 import { SortMap, BaseEvent as Event } from 'bobe-shared';
 import type { Signal } from './signal';
+export const rawToProxy = new WeakMap();
 
 export const evt = new Event();
 

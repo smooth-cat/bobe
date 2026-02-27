@@ -127,9 +127,10 @@ export function clean(cb: () => void) {
   G.PullingSignal.clean = () => runWithPulling(cb, null) ;
 }
 
-export function runWithPulling(fn: Function, signal: Signal | null) {
+export function runWithPulling<T extends (...args: any[]) => any>(fn: T, signal: Signal | null): ReturnType<T> {
   const prevPulling = G.PullingSignal;
   G.PullingSignal = signal;
-  fn();
+  const res = fn();
   G.PullingSignal = prevPulling;
+  return res;
 }

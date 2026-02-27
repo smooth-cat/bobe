@@ -1,3 +1,5 @@
+import { Keys } from "./type";
+
 export const ide =
   globalThis.requestIdleCallback ||
   (globalThis.requestAnimationFrame
@@ -37,3 +39,10 @@ const p = Promise.resolve();
 export const micro = (cb: () => any) => {
   p.then(cb)
 }
+
+export const toRaw = <T>(a: T) => {
+  if (typeof a === 'object' && a !== null && a[Keys.Raw]) {
+    return toRaw(a[Keys.Raw]);
+  }
+  return a;
+};

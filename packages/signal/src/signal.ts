@@ -135,7 +135,7 @@ export class Signal<T = any> implements Vertex {
       let v = this.pull();
       if (isScope && typeof v === 'function') {
         const fn = v;
-        this.clean = () => runWithPulling(fn, null);
+        this.clean = () => runWithPulling(fn as any, null);
         v = this.value;
       }
       // 如果使用了 DEFAULT_PULL，处理一次 set 的取值后，替换回 customPull，如果有的话
