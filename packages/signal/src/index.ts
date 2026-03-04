@@ -8,6 +8,7 @@ import { deepSignal } from './deep-signal';
 export { Scheduler, registerScheduler } from './schedule';
 export { TaskQueue } from './task';
 export { runWithPulling, clean } from './scope';
+export * from './store';
 export * from './type';
 export { batch } from './batch-set';
 const DefaultCustomSignalOpt = {

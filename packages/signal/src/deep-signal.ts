@@ -3,7 +3,7 @@ import { G, rawToProxy } from './global';
 import { Scheduler } from './schedule';
 import { runWithPulling } from './scope';
 import { Signal } from './signal';
-import { Keys } from './type';
+import { IsStore, Keys, StoreIgnoreKeys } from './type';
 import { toRaw } from './util';
 import { batch } from './batch-set';
 
@@ -17,7 +17,7 @@ export const deepSignal = <T>(target: T, scope: Signal, deep = true) => {
   // 每个对象维护自己的 cells 闭包
   const cells = new Map<any, Signal>();
   const targetIsArray = Array.isArray(target);
-
+  const targetIsStore = Boolean(target.constructor?.[IsStore]);
   const proxy = new Proxy(target, {
     get(obj, prop, receiver) {
       switch (prop) {
@@ -27,8 +27,14 @@ export const deepSignal = <T>(target: T, scope: Signal, deep = true) => {
           return deep;
         case Keys.Scope:
           return scope;
+        case Keys.Cells:
+          return cells;
         default:
           break;
+      }
+
+      if (targetIsStore && obj.constructor[StoreIgnoreKeys].includes(prop)) {
+        return Reflect.get(obj, prop, receiver);
       }
 
       const desc = Reflect.getOwnPropertyDescriptor(obj, prop);
@@ -67,6 +73,9 @@ export const deepSignal = <T>(target: T, scope: Signal, deep = true) => {
     },
 
     set(obj, prop, value, receiver) {
+      if (targetIsStore && obj.constructor[StoreIgnoreKeys].includes(prop)) {
+        return Reflect.set(obj, prop, value, receiver);
+      }
       // 数组项 set 可能出现 Iterator 设置，用 batch 避免 effect 多次执行
       batch.start();
       const success = Reflect.set(obj, prop, value, receiver);
@@ -86,6 +95,9 @@ export const deepSignal = <T>(target: T, scope: Signal, deep = true) => {
 
     // 【核心修改】拦截 delete 操作
     deleteProperty(obj, prop) {
+      if (targetIsStore && obj.constructor[StoreIgnoreKeys].includes(prop)) {
+        return Reflect.deleteProperty(obj, prop);
+      }
       if (cells.has(prop)) {
         // 2. 从 Map 中移除，切断引用，允许 GC 回收这个 $() 实例
         cells.delete(prop);
@@ -107,6 +119,45 @@ export const deepSignal = <T>(target: T, scope: Signal, deep = true) => {
   rawToProxy.set(target, proxy);
   return proxy;
 };
+
+/**
+ * 将 from 响应式对象中 fromKey 对应的 Signal
+ * 共享给 to 响应式对象的 toKey
+ */
+export const shareSignal = (from: any, fromPath: string, to: any, toPath: string) => {
+  try {
+    const toPaths = toPath.split('.');
+    const formPaths = Array.isArray(fromPath) ? fromPath : fromPath.split('.');
+    runWithPulling(() => {
+      const { target: fromTarget, key: fromKey } = getTargetAndKey(from, formPaths);
+      // 通过 get 陷阱确保 signal 已生成
+      fromTarget[fromKey];
+      // 获取 signal
+      const fromSignal = fromTarget[Keys.Cells].get(fromKey)!;
+  
+      // 将 signal 共享给 to 代理对象
+      const { target: toTarget, key: toKey } = getTargetAndKey(to, toPaths);
+      toTarget[Keys.Cells].set(toKey, fromSignal)
+    }, null);
+  } catch (error) {
+    console.error('映射了不存在的Key！')
+    throw error; 
+  }
+};
+
+function getTargetAndKey(obj: any, paths: string[]) {
+  let target = obj;
+  let key = '';
+  const len = paths.length;
+  for (let i = 0; i < len; i++) {
+    key = paths[i];
+    // 通过倒数第二个 key，可以找到代理对象
+    if (i < len - 1) {
+      target = target[key];
+    }
+  }
+  return { target, key };
+}
 
 function handleGetterAsComputed(
   obj: object,
