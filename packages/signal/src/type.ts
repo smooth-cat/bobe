@@ -8,11 +8,9 @@ export type SignalType = 'ref' | 'auto' | 'proxy';
 export enum Keys {
   Iterator = '__AOYE_ITERATOR',
   Raw = '__AOYE_RAW',
-  Deep = '__AOYE_DEEP',
-  Scope = '__AOYE_SCOPE',
-  Cells = '__AOYE_CELLS'
+  Meta = '__AOYE_META'
 }
-
+export type Key = string | number | symbol;
 /** store 标识 */
 export const IsStore = Symbol('__AOYE_IS_STORE'),
   StoreIgnoreKeys = Symbol('__AOYE_IGNORE_KEYS');

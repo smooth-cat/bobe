@@ -1,3 +1,6 @@
+import { Store } from 'aoye';
+import type { Tokenizer } from './tokenizer';
+import type { Terp } from './index';
 
 export enum TokenType {
   NewLine = 0b0000_0000_0000_0000_0000_0000_0000_0001,
@@ -6,17 +9,28 @@ export enum TokenType {
   Identifier = 0b0000_0000_0000_0000_0000_0000_0000_1000,
   Assign = 0b0000_0000_0000_0000_0000_0000_0001_0000,
   Pipe = 0b0000_0000_0000_0000_0000_0000_0010_0000,
-  Eof = 0b0000_0000_0000_0000_0000_0000_0100_0000
+  Eof = 0b0000_0000_0000_0000_0000_0000_0100_0000,
+  InsertionExp = 0b0000_0000_0000_0000_0000_0000_1000_0000
 }
 
 export enum LogicType {
   If = 0b0000_0000_0000_0000_0000_0000_0000_0001,
   ElseIf = 0b0000_0000_0000_0000_0000_0000_0000_0010,
   Else = 0b0000_0000_0000_0000_0000_0000_0000_0100,
-  For = 0b0000_0000_0000_0000_0000_0000_0000_1000
+  For = 0b0000_0000_0000_0000_0000_0000_0000_1000,
+  Component = 0b0000_0000_0000_0000_0000_0000_0001_0000,
+  Fragment = 0b0000_0000_0000_0000_0000_0000_0010_0000,
+  Root = 0b0000_0000_0000_0000_0000_0000_0100_0000
+}
+
+export enum TerpEvt {
+  AllAttrGot = 'all-attr-got',
+  HandledComponentNode = 'handled-component-node'
 }
 
 export type BaseType = string | number | boolean | undefined | null;
+
+export const InsComputed = Symbol('insertion-computed-map-key');
 
 export type Token = {
   type: TokenType;
@@ -32,12 +46,44 @@ export type HookProps = {
   /** 父节点 */
   parentNode?: any;
 };
+
+export type TerpConf = Partial<
+  Pick<Terp, 'data' | 'createNode' | 'setProp' | 'hook' | 'HookId' | 'insert'>
+>;
+export type CustomRenderConf = Omit<TerpConf,  'data'>;
+
 export type Hook = (props: HookProps) => any;
 
+export type HookType = 'dynamic' | 'static';
+
+/** 返回值是用户自定义的节点 */
+export type BobeUI = (this: Store, options: CustomRenderConf, valOpt: TerpConf) => ComponentNode;
 
 export type StackItem = {
   /** 表示当前节点子节点已处理完毕 */
   prevSibling: any;
   /** 当前节点*/
   node: any;
-}
+};
+
+export type IfNode = LogicNode & {
+  condition: () => any;
+  anchor: any;
+  isFirstRender: boolean;
+  snapshot: ReturnType<Tokenizer['snapshot']>;
+  watcher: { stop: () => void };
+};
+
+export type LogicNode = {
+  __logicType: LogicType;
+  directList?: any[];
+  realList: any[];
+};
+
+export type FragmentNode = LogicNode & {};
+export type ComponentNode = LogicNode & {
+  store: Store;
+};
+export type RootNode = LogicNode & {
+  store: Store;
+};

@@ -1,82 +1,81 @@
-import { Interpreter } from './index';
-import { $, Scheduler } from 'aoye';
+import { Terp } from './index';
+import { Store } from 'aoye';
 import { Tokenizer } from './tokenizer';
+import { BobeUI, CustomRenderConf } from './type';
 type UpdateItem = {
   fn: (value: any) => any;
   old: any;
 };
 
 export function bobe(fragments: TemplateStringsArray, ...values: any[]) {
-  const tokenizer = new Tokenizer();
-  const cmp = new Interpreter(tokenizer);
-
-  // 初始化
-  cmp.config({
-    effect(fn) {
-      $(fn)();
-    },
-    hook({ i }) {
-      return values[i];
-    },
-    setDataProp(data, key, value) {
-      return (data[key] = $(value));
-    },
-    setProp(node: any, key: string, value: any, hookI?: number) {
-      // TODO: signal 提供一个判断是 signal getter 的方式
-      if (value instanceof Function) {
-        $(
-          () => {
-            node.props[key] = value();
-          }
-          // { scheduler: Scheduler.Micro }
-        )();
-      } else {
+  const ui: BobeUI = function ui(options, valueOpt) {
+    const tokenizer = new Tokenizer();
+    const cmp = new Terp(tokenizer);
+    Object.assign(cmp, valueOpt);
+    // 初始化
+    cmp.config({
+      ...options,
+      hook({ i }) {
+        return values[i];
+      },
+      setProp(node: any, key: string, value: any, hookI?: number) {
         node.props[key] = value;
       }
-    }
-  });
-  cmp.init(Array.from(fragments));
-  const ast = cmp.program();
-  console.log(JSON.stringify(childToArray(ast), undefined, 2));
-  return { ast, data: cmp.data };
+    });
+    cmp.init(Array.from(fragments));
+    const root = cmp.program();
+    return root;
+  };
+  return ui;
 }
 
-const { ast, data } = bobe`
-  node1 k1=1
-    node1_1 k2=false k3=$a=10
-      node1_1_1 k6=null
-  node2
-  | p1=$b='嘿嘿'
-  | p2=2 p3='你好'
-    node2_1
-    | p4=4 p5=${{ v: '🤡' }} p6=6
-    node2_2
-    | p7=7 p8=\${{ v: '🤡' }} p9=aaa
-  node3 v1=1  v2=2 v3=undefined
-  if ${() => false}
-    node4 greet='成功'
-`;
-data.a.v = 20;
-data.b.v = '哈哈';
-Promise.resolve().then(() => {
-  console.log(JSON.stringify(childToArray(ast), undefined, 2));
-});
+// render -> options
+export function customRender(option: CustomRenderConf) {
+  // 保存 options
+  return function render<T>(Ctor: typeof Store) {
+    const store = Ctor.new();
+    // ui => bobe`` 返回的函数
+    return [store['ui'](option, { data: store }), store];
+  };
+}
+const render = customRender({});
+class App extends Store {
+  count = 10;
+  updateCount = () => {
+    this.count++;
+  }
+  ui = bobe`
+    node1 k1={count}
+      node1_1 k2=2 k3=3
+        node1_1_1 k6=6
+    node2
+    | p1=1
+    | p2=2 p3=3
+      node2_1
+      | p4=4 p5=5 p6=6
+      node2_2
+      | p7=7
+    ${B} v=10
+  `;
+}
+class B extends Store {
+  readonly v = 1;
+  name = '😁'
+  updateName = () => {
+    this.name = '🤡';
+  }
+  ui = bobe`
+    bbb hello={v}
+    nb name={name}
+  `;
+}
 
-// function replace(key: any, value: any) {
-//   if (key === 'child') {
-//     const list = [];
-//     let point = value;
-//     while (point) {
-//       list.push(point.value);
-//       point = point.next;
-//     }
-//     return list;
-//   }
-//   if (key === 'lastChild') {
-//     return undefined;
-//   }
-//   return value;
-// }
+const [root, store] = render(App);
+console.log(JSON.stringify(root, null, 2));
+store.updateCount();
+console.log('------------------------------------------------------');
+
+console.log(JSON.stringify(root, null, 2));
 
 function childToArray(node) {
   const newNode: any = {};

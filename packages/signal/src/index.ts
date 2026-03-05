@@ -5,6 +5,7 @@ import { Signal } from './signal';
 import { Dispose, Getter, Mix, SignalType, ValueDiff } from './type';
 import { deepSignal } from './deep-signal';
 
+export { shareSignal } from './deep-signal';
 export { Scheduler, registerScheduler } from './schedule';
 export { TaskQueue } from './task';
 export { runWithPulling, clean } from './scope';

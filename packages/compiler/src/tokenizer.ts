@@ -81,7 +81,7 @@ export class Tokenizer {
       // 此时已经指到一个非 tab 的字符
       const { value, isEmptyLine } = this.getDentValue();
       const currLen = value.length;
-      if(isEmptyLine) continue;
+      if (isEmptyLine) continue;
       if (value.length > dentLen) {
         skipFragment += value;
       }
@@ -209,6 +209,9 @@ export class Tokenizer {
             case '"':
               this.str(char);
               break;
+            case '{':
+              this.brace();
+              break;
             case '$':
               const handled = this.dynamic(char);
               if (handled) break;
@@ -275,6 +278,58 @@ export class Tokenizer {
     this.setToken(TokenType.Identifier, value);
     return true;
   }
+
+  private brace() {
+    let inComment: string,
+      inString: string,
+      count = 0,
+      value = '',
+      backslashCount = 0; // 用于记录连续的反斜杠数量
+    while (1) {
+      const char = this.char;
+      const nextChar = this.after;
+
+      // 1. 处理注释状态退出
+      if (inComment === 'single' && char === '\n') {
+        inComment = null;
+      } else if (inComment === 'multi' && char === '*' && nextChar === '/') {
+        inComment = null;
+        value += this.next()[0]; // 跳过 * 号
+      }
+      // 2. 如果不在注释中，处理字符串状态
+      else if (inString) {
+        // 退出字符串
+        if (char === inString && backslashCount % 2 === 0) {
+          inString = null;
+        }
+        backslashCount = char === '\\' ? backslashCount + 1 : 0;
+      } else {
+        // 3. 进入注释或字符串状态
+        if (char === '/' && nextChar === '/') {
+          inComment = 'single';
+          value += this.next()[0]; // 跳过 / 号
+        } else if (char === '/' && nextChar === '*') {
+          inComment = 'multi';
+          value += this.next()[0]; // 跳过 / 号
+        } else if (char === "'" || char === '"' || char === '`') {
+          inString = char;
+        }
+        // 4. 只有在非字符串、非注释状态下才计数
+        else if (char === '{') {
+          count++;
+        } else if (char === '}') {
+          count--;
+        }
+      }
+      
+      if (count === 0 && inString == null && inComment == null) {
+        this.setToken(TokenType.InsertionExp, value.slice(1));
+        return;
+      }
+      value += this.next()[0];
+    }
+  }
+
   private newLine() {
     let value = '\n';
     let nextC;

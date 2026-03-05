@@ -3,7 +3,7 @@ import { G, rawToProxy } from './global';
 import { Scheduler } from './schedule';
 import { runWithPulling } from './scope';
 import { Signal } from './signal';
-import { IsStore, Keys, StoreIgnoreKeys } from './type';
+import { IsStore, Key, Keys, StoreIgnoreKeys } from './type';
 import { toRaw } from './util';
 import { batch } from './batch-set';
 
@@ -18,22 +18,23 @@ export const deepSignal = <T>(target: T, scope: Signal, deep = true) => {
   const cells = new Map<any, Signal>();
   const targetIsArray = Array.isArray(target);
   const targetIsStore = Boolean(target.constructor?.[IsStore]);
+  const meta = {
+    deep,
+    scope,
+    cells
+  };
   const proxy = new Proxy(target, {
     get(obj, prop, receiver) {
       switch (prop) {
         case Keys.Raw:
           return target;
-        case Keys.Deep:
-          return deep;
-        case Keys.Scope:
-          return scope;
-        case Keys.Cells:
-          return cells;
+        case Keys.Meta:
+          return meta;
         default:
           break;
       }
 
-      if (targetIsStore && obj.constructor[StoreIgnoreKeys].includes(prop)) {
+      if (targetIsStore && isIgnoreKey(obj.constructor[StoreIgnoreKeys], prop)) {
         return Reflect.get(obj, prop, receiver);
       }
 
@@ -73,7 +74,7 @@ export const deepSignal = <T>(target: T, scope: Signal, deep = true) => {
     },
 
     set(obj, prop, value, receiver) {
-      if (targetIsStore && obj.constructor[StoreIgnoreKeys].includes(prop)) {
+      if (targetIsStore && isIgnoreKey(obj.constructor[StoreIgnoreKeys], prop)) {
         return Reflect.set(obj, prop, value, receiver);
       }
       // 数组项 set 可能出现 Iterator 设置，用 batch 避免 effect 多次执行
@@ -87,6 +88,8 @@ export const deepSignal = <T>(target: T, scope: Signal, deep = true) => {
 
       if (targetIsArray) {
         handleArraySet(obj, prop, value, receiver);
+      } else {
+        triggerIter(obj, prop, value, receiver);
       }
       batch.end();
       // 保持原始对象干净
@@ -95,13 +98,14 @@ export const deepSignal = <T>(target: T, scope: Signal, deep = true) => {
 
     // 【核心修改】拦截 delete 操作
     deleteProperty(obj, prop) {
-      if (targetIsStore && obj.constructor[StoreIgnoreKeys].includes(prop)) {
+      if (targetIsStore && isIgnoreKey(obj.constructor[StoreIgnoreKeys], prop)) {
         return Reflect.deleteProperty(obj, prop);
       }
       if (cells.has(prop)) {
         // 2. 从 Map 中移除，切断引用，允许 GC 回收这个 $() 实例
         cells.delete(prop);
       }
+      triggerIter(obj, prop, undefined, proxy);
       return Reflect.deleteProperty(obj, prop);
     },
 
@@ -133,15 +137,15 @@ export const shareSignal = (from: any, fromPath: string, to: any, toPath: string
       // 通过 get 陷阱确保 signal 已生成
       fromTarget[fromKey];
       // 获取 signal
-      const fromSignal = fromTarget[Keys.Cells].get(fromKey)!;
-  
+      const fromSignal = fromTarget[Keys.Meta].cells.get(fromKey)!;
+
       // 将 signal 共享给 to 代理对象
       const { target: toTarget, key: toKey } = getTargetAndKey(to, toPaths);
-      toTarget[Keys.Cells].set(toKey, fromSignal)
+      toTarget[Keys.Meta].cells.set(toKey, fromSignal);
     }, null);
   } catch (error) {
-    console.error('映射了不存在的Key！')
-    throw error; 
+    console.error('映射了不存在的Key！');
+    throw error;
   }
 };
 
@@ -157,6 +161,13 @@ function getTargetAndKey(obj: any, paths: string[]) {
     }
   }
   return { target, key };
+}
+
+function isIgnoreKey(ignores: Key[], key: Key) {
+  if (typeof key !== 'string') {
+    return ignores.includes(key);
+  }
+  return ignores.some(it => typeof it === 'string' && key.startsWith(it));
 }
 
 function handleGetterAsComputed(
@@ -190,6 +201,13 @@ function handleArraySet(arr: object, prop: string | symbol, value: any, receiver
   }
   // 其他
   else {
+    triggerIter(arr, prop, value, receiver);
+  }
+}
+
+function triggerIter(obj: object, prop: string | symbol, value: any, receiver: any) {
+  if (!Reflect.has(obj, prop)) {
+    receiver[Keys.Iterator] = receiver[Keys.Raw][Keys.Iterator] + 1;
   }
 }
 
@@ -239,8 +257,8 @@ const arrayMethodReWrites: any = {};
     const fn = Array.prototype[key];
     const rawArray = toRaw(this);
     const iter = fn.call(rawArray, ...args);
-    const scope = this[Keys.Scope];
-    const isDeep = this[Keys.Deep];
+    const meta = this[Keys.Meta];
+    const { deep: isDeep, scope } = meta;
     // 深度代理需要将 iter.next 返回值转 proxy
     if (isDeep) {
       const rawNext = iter.next.bind(iter);
@@ -267,8 +285,8 @@ const arrayMethodReWrites: any = {};
  * filter 函数的实现
  */
 arrayMethodReWrites.filter = function (callback, thisArg) {
-  const scope = this[Keys.Scope];
-  const isDeep = this[Keys.Deep];
+  const meta = this[Keys.Meta];
+  const { deep: isDeep, scope } = meta;
   const that = toRaw(this);
   const result = [];
   let resultIndex = 0;
@@ -293,8 +311,8 @@ arrayMethodReWrites.filter = function (callback, thisArg) {
 };
 
 arrayMethodReWrites.slice = function (start, end) {
-  const scope = this[Keys.Scope];
-  const isDeep = this[Keys.Deep];
+  const meta = this[Keys.Meta];
+  const { deep: isDeep, scope } = meta;
 
   const that = toRaw(this);
   const len = that.length;
@@ -334,8 +352,8 @@ arrayMethodReWrites.slice = function (start, end) {
 };
 
 arrayMethodReWrites.toReversed = function () {
-  const scope = this[Keys.Scope];
-  const isDeep = this[Keys.Deep];
+  const meta = this[Keys.Meta];
+  const { deep: isDeep, scope } = meta;
   const that = toRaw(this);
 
   // 2. 获取数组长度（使用无符号右移保证为正整数，模拟规范中的 ToLength/ToUint32）
@@ -362,8 +380,8 @@ arrayMethodReWrites.toReversed = function () {
 };
 
 arrayMethodReWrites.toSpliced = function (start, deleteCount, ...items) {
-  const scope = this[Keys.Scope];
-  const isDeep = this[Keys.Deep];
+  const meta = this[Keys.Meta];
+  const { deep: isDeep, scope } = meta;
   const that = toRaw(this);
 
   const len = that.length;
@@ -412,8 +430,8 @@ arrayMethodReWrites.toSpliced = function (start, deleteCount, ...items) {
 };
 
 arrayMethodReWrites.with = function (index, value) {
-  const scope = this[Keys.Scope];
-  const isDeep = this[Keys.Deep];
+  const meta = this[Keys.Meta];
+  const { deep: isDeep, scope } = meta;
   const that = toRaw(this);
 
   // 1. 获取数组长度（确保处理类数组对象）
@@ -447,8 +465,8 @@ arrayMethodReWrites.with = function (index, value) {
 };
 
 arrayMethodReWrites.concat = function (...items) {
-  const scope = this[Keys.Scope];
-  const isDeep = this[Keys.Deep];
+  const meta = this[Keys.Meta];
+  const { deep: isDeep, scope } = meta;
   const that = toRaw(this);
   const selfLen = that.length; // 确保长度为正整数
 
@@ -546,9 +564,9 @@ const GetMethodConf = {
   }
 ].forEach(({ key, wrapReturn, wrapArgs }) => {
   arrayMethodReWrites[key] = function (...args: any[]) {
-    const scope = this[Keys.Scope];
+    const meta = this[Keys.Meta];
     const fn = Array.prototype[key];
-    const isDeep = this[Keys.Deep];
+    const { deep: isDeep, scope } = meta;
     const that = toRaw(this);
     warpCallbackArgs(isDeep, args, scope, wrapArgs);
     // 遍历函数不收集数组属性
@@ -564,8 +582,8 @@ const GetMethodConf = {
 // TODO: 考虑是否基于 js 实现以提高性能
 arrayMethodReWrites.toSorted = function (...args: any[]) {
   const fn = Array.prototype['toSorted'];
-  const scope = this[Keys.Scope];
-  const isDeep = this[Keys.Deep];
+  const meta = this[Keys.Meta];
+  const { deep: isDeep, scope } = meta;
   const that = toRaw(this);
   warpCallbackArgs(isDeep, args, scope, 0b11);
   let result = fn.call(that, ...args);

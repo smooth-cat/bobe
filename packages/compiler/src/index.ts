@@ -1,37 +1,51 @@
 import { Tokenizer } from './tokenizer';
-import { Hook, HookProps, LogicType, StackItem, TokenType } from './type';
+import { $, effect, Keys, shareSignal, Signal, Store } from 'aoye';
+import {
+  BobeUI,
+  ComponentNode,
+  CustomRenderConf,
+  FragmentNode,
+  Hook,
+  HookProps,
+  HookType,
+  IfNode,
+  LogicNode,
+  LogicType,
+  StackItem,
+  TerpConf,
+  TerpEvt,
+  TokenType
+} from './type';
+import { BaseEvent } from 'bobe-shared';
+const tap = new BaseEvent();
 
-export class Interpreter {
+export class Terp {
   /** 模板字符串动态节点的占位符 */
   HookId = '_h_o_o_k_';
   /** 用于渲染的数据 */
   data: Record<any, any> = {};
   /** 模板字符串动态节点索引 */
   hookI = 0;
-  constructor(private tokenizer: Tokenizer) {}
-  /**
-   * 根节点：
-   * 是 一个节点列表
-   * <program> ::= <nodeList>
-   */
-  program() {
-    // 初始化第一个 token
-    this.tokenizer.consume();
-    const _program = this.createRoot();
-    this.nodeList(_program);
-    return _program;
-  }
-
   stack: StackItem[] = [];
-
-  experimentalProgram() {
+  constructor(private tokenizer: Tokenizer) {}
+  // /** program 要挂载的父节点位置 */
+  // root: any;
+  // /** program 挂载的前置节点 */
+  // anchor: any;
+  program() {
+    const root: ComponentNode = {
+      __logicType: LogicType.Component,
+      store: this.data as any,
+      realList: [],
+      directList: []
+    };
     this.tokenizer.consume();
     let current: any;
     let prevSibling: any;
-    const rootList: any[] = [];
+    this.stack = [{ node: root, prevSibling }];
     while (1) {
       if (this.tokenizer.isEof()) {
-        rootList.push(current);
+        this.handleInsert(root, current, root.realList[root.realList.length - 1]);
         break;
       }
 
@@ -46,37 +60,59 @@ export class Interpreter {
         // 第 0 个节点没有前置节点
         prevSibling = null;
         current = this.declaration();
+        continue;
       }
-      // 下一个可能是 同级节点 或 Dedent
+      // token 不是 Indent ，就是 同级节点 或 Dedent
+      // 将之前产生的 current 添加到父节点
+      if (current) {
+        if (this.stack.length > 1) {
+          const parent = this.stack[this.stack.length - 1].node;
+          this.handleInsert(parent, current, prevSibling);
+        } else {
+          this.handleInsert(root, current, prevSibling);
+        }
+      }
+      // 下一个 token 是 Dedent
+      if (this.tokenizer.token.type & TokenType.Dedent) {
+        const DEDENT = this.tokenizer.consume();
+        const { node: parent, prevSibling: prevParent } = this.stack.pop();
+        prevSibling = prevParent;
+        current = parent;
+      }
+      // 下一个是 同级节点
       else {
-        // 将当前节点插入父节点
-        if (current) {
-          if (this.stack.length) {
-            const parent = this.stack[this.stack.length - 1].node;
-            this.insert(parent, current, prevSibling);
-          } else {
-            rootList.push(current);
-          }
-        }
-
-        // 下一个 token 是 Dedent
-        if (this.tokenizer.token.type & TokenType.Dedent) {
-          const DEDENT = this.tokenizer.consume();
-          const { node: parent, prevSibling: prevParent } = this.stack.pop();
-          prevSibling = prevParent;
-          current = parent;
-        }
-        // 下一个是 同级节点
-        else {
-          prevSibling = current;
-          current = this.declaration();
-        }
+        prevSibling = current;
+        current = this.declaration();
       }
     }
-    return rootList;
+    return root;
+  }
+
+  /** 处理
+   *                   是逻辑                         是普通
+   * 父节点  将子节点们插入到 realList          调用 insert 方法挨个插入子节点
+   * 子节点  将其下 realList 插入到父节点       将本节点插入父节点
+   */
+  handleInsert(parent: any, child: any, prevSibling: any) {
+    let insertFn = this.insert.bind(this);
+    if (parent.__logicType) {
+      insertFn = (parent: any, child: any, prevSibling: any) => {
+        parent.realList.splice(parent.realList.indexOf(prevSibling) + 1, 0, child);
+      };
+    }
+    if (child.__logicType) {
+      const realList = child.realList as any[];
+      for (let i = realList.length; i--; ) {
+        const item = realList[i];
+        insertFn(parent, item, prevSibling);
+      }
+    } else {
+      insertFn(parent, child, prevSibling);
+    }
   }
 
   /**
+   * @deprecated
    * 节点列表：
    * 可以是一个节点，也可以跟随更多节点
    * <nodeList> ::= <node> <nodeList> <EOF|Dedent>
@@ -124,20 +160,18 @@ export class Interpreter {
       // 父节点是普通节点，确实前面没有东西，anchor => null
       else {
       }
-      this.effect(() => {
-        // 子节点是 if，将 child 插入到
-        if (_node.child && _node.condition()) {
-          let item = _node.child;
-          while (item != null) {
-            const { value: child } = item;
-            const realPrev = this.getPrevRealSibling(prevSibling);
-            const currItem = insert(parent, child, realPrev, prevItem);
-            item = item.next;
-            prevItem = currItem;
-            prevSibling = child;
-          }
+      // 子节点是 if，将 child 插入到
+      if (_node.child && _node.condition()) {
+        let item = _node.child;
+        while (item != null) {
+          const { value: child } = item;
+          const realPrev = this.getPrevRealSibling(prevSibling);
+          const currItem = insert(parent, child, realPrev, prevItem);
+          item = item.next;
+          prevItem = currItem;
+          prevSibling = child;
         }
-      });
+      }
     }
   }
   /** 考虑到同级 逻辑模块 */
@@ -176,44 +210,145 @@ export class Interpreter {
    * <declaration> ::= <tagName=token> <headerLine> <extensionLines>
    *  */
   declaration() {
-    const [isHook, value] = this._hook({});
+    const [hookType, value] = this._hook({});
     let _node: any;
-    if (isHook) {
-      const { tree, data } = value();
-      _node = tree;
-    } else if (value === 'if') {
+
+    if (value === 'if') {
       return this.ifDeclaration();
+    } else if (hookType) {
+      // 静态 1. Component，2. bobe 返回的 render 方法
+      if (hookType === 'static') {
+        // 传组件 class
+        if (typeof value === 'function' && value.prototype instanceof Store) {
+          _node = this.componentDeclaration(value);
+        }
+        // 传组件片段
+        else if (typeof value === 'function') {
+          _node = this.fragmentDeclaration(value);
+        }
+        // 其余类型不允许静态插值
+        else {
+          throw new SyntaxError(`declaration 不支持 ${value} 类型的静态插值`);
+        }
+      }
+      // 动态插值
+      // 一定是 js 表达式
+      // 1. 返回基础值，创建文本节点 createNode('text', String(value))
+      // 2. 返回  组件，创建组件节点
+      // 3. 返回  片段
+      // TODO: 后续考虑动态组件
+      else {
+        const isKeyInsertion = Boolean(this.data[Keys.Raw][value]);
+
+        const fn = new Function('data', `let v;with(data){v=(${value})};return v`);
+
+        _node = this.createNode(value);
+      }
     } else {
       _node = this.createNode(value);
     }
     this.tokenizer.consume();
     this.headerLine(_node);
     this.extensionLines(_node);
+    if (_node.__logicType === LogicType.Component) {
+      tap.once(TerpEvt.HandledComponentNode, node => (_node = node));
+      tap.emit(TerpEvt.AllAttrGot);
+    }
     return _node;
+  }
+
+  // TODO: 指定挂载位置
+  fragmentDeclaration(renderFragment: BobeUI) {
+    const fragmentNode: FragmentNode = {
+      __logicType: LogicType.Fragment,
+      directList: [],
+      realList: []
+    };
+    renderFragment.call(this.data, this.opt, { data: this.data, root: '', anchor: '' });
+    return fragmentNode;
+  }
+
+  /**
+   * key 元素，组件的 key
+   * value
+   * 1. 静态类型值
+   * 2. 插值计算 函数，可以考虑 使用 effect 或 computed 做处理
+   *
+   * mapKey 映射, 对应子组件的属性
+   *  */
+  onePropParsed(node: any, key: string, value: any, valueIsMapKey: boolean, hookI?: number) {
+    if (typeof value === 'function') {
+      effect(() => {
+        const res = value();
+        this.setProp(node, key, res, hookI);
+      });
+    } else if (valueIsMapKey) {
+      effect(() => {
+        const res = this.data[value];
+        this.setProp(node, key, res, hookI);
+      });
+    }
+    // 静态数据
+    else {
+      this.setProp(node, key, value, hookI);
+    }
+  }
+
+  componentDeclaration(Component: typeof Store) {
+    // 先进行 attr 映射，或建立 signal 连接，才能开始 render
+    // 必须等待 attr 解析完毕
+    const child = Component.new();
+    const prevOnePropParsed = this.onePropParsed;
+    this.onePropParsed = (node, key, value, valueIsMapKey, hookI) => {
+      // key 映射
+      if (valueIsMapKey) {
+        shareSignal(this.data, value, child, key);
+      }
+      // 动态值内置 computed 处理
+      else if (typeof value === 'function') {
+        const meta = child[Keys.Meta];
+        const cells: Map<string, Signal> = meta.cells;
+        const computed = $(value);
+        cells.set(key, computed);
+      }
+      // 静态值
+      else {
+        child[Keys.Raw][key] = value;
+      }
+    };
+
+    tap.once(TerpEvt.AllAttrGot, () => {
+      this.onePropParsed = prevOnePropParsed;
+      const root = (child['ui'] as BobeUI)(this.opt, { data: child });
+      tap.emit(TerpEvt.HandledComponentNode, root);
+    });
+    return { __logicType: LogicType.Component };
   }
 
   ifDeclaration() {
     const ifIdentifier = this.tokenizer.consume();
     const [isHook, value] = this._hook({});
-    const ifNode = {
+    const ifNode: IfNode = {
       __logicType: LogicType.If,
       condition: value,
-      child: null,
-      lastChild: null,
-      anchor: null,
-      skip: null
+      directList: [],
+      realList: [],
+      snapshot: this.tokenizer.snapshot(),
+      isFirstRender: true,
+      watcher: null,
+      anchor: null
     };
-    this.effect(() => {
-      const needMount = value();
-      if (needMount) {
-        const condition = this.tokenizer.consume();
-        const newLine = this.tokenizer.consume();
-      } else {
-        ifNode.skip = this.tokenizer.skip();
-        console.log('skip');
-        console.log(ifNode.skip);
-      }
-    });
+    ifNode.watcher = effect(
+      ({ val }) => {
+        if (val) {
+          const condition = this.tokenizer.consume();
+          const newLine = this.tokenizer.consume();
+        } else {
+          const skipStr = this.tokenizer.skip();
+        }
+      },
+      [value]
+    );
     return ifNode;
   }
 
@@ -255,54 +390,44 @@ export class Interpreter {
    * <attributeList> ::= <attribute> <attributeList>
    *                    | ε
    *
-   * <attribute> ::= <key> <=> <value or dataKey> <=> <value>
-   *
+   * <attribute> ::= <key> = <value>
+   * 1. 普通节点 执行 setProps 🪝
+   * 2. 组件节点 收集映射关系，或通过 effect 直接设值
    */
   attributeList(_node: any) {
-    let values: any[] = [];
-    let prevToken = undefined;
-    while (1) {
-      // 前者是 id ，后者不是 =，values 可以组成属性赋值
-      if (prevToken?.type === TokenType.Identifier && this.tokenizer.token.type !== TokenType.Assign) {
-        const [v1, v2, v3] = values;
-        const key: any = v1;
-        let dataKey, defaultVal;
-        if (v3 !== undefined) {
-          defaultVal = v3;
-          dataKey = v2;
+    let key: string, eq: any;
+    while (!(this.tokenizer.token.type & TokenType.NewLine)) {
+      // 取 key
+      if (key == null) {
+        key = this.tokenizer.token.value as any;
+      }
+      // 取 =
+      else if (eq == null) {
+        eq = '=';
+      }
+      // 取 value
+      else {
+        const [hookType, value] = this._hook({});
+        // 动态的要做成函数
+        if (hookType === 'dynamic') {
+          const valueIsMapKey = Reflect.has(this.data[Keys.Raw], value);
+          const fn = valueIsMapKey
+            ? value
+            : new Function('data', `let v;with(data){v=${value}};return v;`).bind(undefined, this.data);
+          this.onePropParsed(_node, key, fn, valueIsMapKey, this.hookI);
         }
-        // v2 有值，要区分其是 dataKey，还是默认值
-        else if (v2 !== undefined) {
-          // 区分 p=$abc 和 p=${haha} (编译时态)
-          if (typeof v2 === 'string' && v2[0] === '$' && v2[1] !== '{') {
-            dataKey = v2.slice(1);
-          } else {
-            defaultVal = v2;
-          }
+        // 静态
+        else if (hookType === 'static') {
+          this.onePropParsed(_node, key, value, false, this.hookI);
         }
-        // v2 没值
+        // 基础数据字面量
         else {
-          dataKey = key;
+          this.onePropParsed(_node, key, value, false, this.hookI);
         }
-        let val = defaultVal;
-        if (dataKey) {
-          val = this.setDataProp(this.data, dataKey, defaultVal);
-        }
-        this.setProp(_node, key, val, this.hookI - 1);
-        const [isHook, value] = this._hook({});
-        values = [value];
+        key = null;
+        eq = null;
       }
-      // 先存储
-      else if (this.tokenizer.token.type !== TokenType.Assign) {
-        const [isHook, value] = this._hook({});
-        values.push(value);
-      }
-
-      // 已经不是 attr 相关的字符了
-      if (!(this.tokenizer.token.type & (TokenType.Identifier | TokenType.Assign))) {
-        break;
-      }
-      prevToken = this.tokenizer.consume();
+      this.tokenizer.consume();
     }
   }
 
@@ -321,34 +446,10 @@ export class Interpreter {
     return list;
   }
 
-  config(
-    opt: Partial<
-      Pick<
-        Interpreter,
-        | 'createRoot'
-        | 'createNode'
-        | 'setProp'
-        | 'setDataProp'
-        | 'setChildren'
-        | 'hook'
-        | 'HookId'
-        | 'effect'
-        | 'insert'
-      >
-    >
-  ) {
+  opt: TerpConf;
+  config(opt: TerpConf) {
     Object.assign(this, opt);
-  }
-
-  createData(data: Record<any, any>) {
-    return data;
-  }
-  setDataProp(data: Record<any, any>, key: any, value: any) {
-    return (data[key] = value);
-  }
-
-  setChildren(node: any, children: any[]) {
-    node.children = children;
+    this.opt = opt;
   }
 
   createNode(name: string) {
@@ -357,31 +458,18 @@ export class Interpreter {
       props: {}
     };
   }
-  createRoot() {
-    return this.createNode('root');
-  }
 
   insert(parent: any, node: any, prevSibling: any, prevItem?: any) {
     return this.defaultInsert(parent, node, prevSibling, prevItem);
   }
   defaultInsert(parent: any, node: any, prevSibling: any, prevItem: any) {
-    if (!parent.child) {
-      return (parent.child = parent.lastChild =
-        {
-          value: node,
-          next: null
-        });
+    if (prevSibling) {
+      const children: any[] = parent.children;
+      const insertI = children.findIndex(item => item === prevSibling);
+      children.splice(insertI + 1, 0, node);
+    } else {
+      parent.children = [node];
     }
-    const nextItem = prevItem.next;
-    const item = {
-      value: node,
-      next: nextItem
-    };
-    prevItem.next = item;
-    if (!nextItem) {
-      parent.lastChild = item;
-    }
-    return item;
   }
 
   remove(parent: any, node: any, prevSibling: any, prevItem: any) {
@@ -389,34 +477,16 @@ export class Interpreter {
   }
   // TODO: 默认改成 prevItem
   defaultRemove(parent: any, node: any, prevSibling: any, prevItem: any) {
-    const currItem = prevItem.next;
-    const nextItem = currItem.next;
-    if (prevItem) {
-      if (nextItem) {
-        prevItem.next = nextItem;
-      } else {
-        prevItem.next = null;
-        parent.lastChild = prevItem;
-      }
-    } else {
-      if (nextItem) {
-        parent.child = nextItem;
-      } else {
-        parent.child = null;
-        parent.lastChild = null;
-      }
+    if (parent.children) {
+      parent.children.splice(parent.children.indexOf(node), 1);
     }
-    currItem.next = null;
   }
 
   setProp(node: any, key: string, value: any, hookI?: number) {
     node.props[key] = value;
   }
 
-  effect: (fn: () => any) => any;
-
   init(fragments: string | string[]) {
-    this.data = this.createData(this.data);
     if (typeof fragments === 'string') {
       this.tokenizer.setCode(fragments);
     } else {
@@ -429,11 +499,13 @@ export class Interpreter {
     }
   }
   hook: Hook;
-  _hook = (props: Partial<HookProps>): [boolean, any] => {
+  _hook = (props: Partial<HookProps>): [HookType | undefined, any] => {
     const value = this.tokenizer.token.value;
-
-    const isHook = typeof value === 'string' && value.indexOf(this.HookId) === 0;
-    if (this.hook && isHook) {
+    const isDynamicHook = this.tokenizer.token.type & TokenType.InsertionExp;
+    const isStaticHook = typeof value === 'string' && value.indexOf(this.HookId) === 0;
+    const hookType: HookType = isDynamicHook ? 'dynamic' : isStaticHook ? 'static' : undefined;
+    // 静态插值 `${xxx}`
+    if (this.hook && isStaticHook) {
       const hookI = Number(value.slice(this.HookId.length));
       const res = this.hook({
         ...props,
@@ -441,45 +513,13 @@ export class Interpreter {
         i: hookI
       });
       this.hookI++;
-      return [isHook, res];
+      return [hookType, res];
     }
-    return [isHook, value];
+    // 动态插值 `{xxx}`
+    else if (isDynamicHook) {
+      return [hookType, value];
+    }
+    // 普通值
+    return [hookType, value];
   };
 }
-
-// const tokenizer = new Tokenizer();
-// const cmp = new Interpreter(tokenizer);
-
-// // 初始化
-// cmp.config({
-//   insert(parent, node) {
-//     if (parent.children) {
-//       parent.children.push(node);
-//     } else {
-//       parent.children = [node];
-//     }
-//     return undefined;
-//   },
-//   setDataProp(data, key, value) {
-//     return (data[key] = value);
-//   },
-//   setProp(node: any, key: string, value: any, hookI?: number) {
-//     node.props[key] = value;
-//   }
-// });
-// cmp.init(`
-// node1 k1=1
-//   node1_1 k2=2 k3=3
-//     node1_1_1 k6=6
-// node2
-// | p1=1
-// | p2=2 p3=3
-//   node2_1
-//   | p4=4 p5=5 p6=6
-//   node2_2
-//   | p7=7
-// node3 v1=1  v2=2 v3=3
-//   node3_1 v4=4 v5=5 v6=6
-// `);
-// const res = cmp.experimentalProgram();
-// console.log(JSON.stringify(res, undefined, 2));
