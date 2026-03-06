@@ -1,6 +1,6 @@
 import { Store } from 'aoye';
 import type { Tokenizer } from './tokenizer';
-import type { Terp } from './index';
+import type { Interpreter } from './terp';
 
 export enum TokenType {
   NewLine = 0b0000_0000_0000_0000_0000_0000_0000_0001,
@@ -48,20 +48,28 @@ export type HookProps = {
 };
 
 export type TerpConf = Partial<
-  Pick<Terp, 'data' | 'createNode' | 'setProp' | 'hook' | 'HookId' | 'insert'>
+  Pick<Interpreter, 'createNode' | 'setProp' | 'nextSib' | 'createAnchor' | 'insertAfter' | 'hook' | 'HookId' | 'data'>
 >;
-export type CustomRenderConf = Omit<TerpConf,  'data'>;
+export type CustomRenderConf = Pick<TerpConf, 'createNode' | 'setProp' | 'nextSib' | 'createAnchor' | 'insertAfter'>;
 
 export type Hook = (props: HookProps) => any;
 
 export type HookType = 'dynamic' | 'static';
 
+export type ProgramCtx = { stack: StackItem[]; prevSibling: any };
+
 /** 返回值是用户自定义的节点 */
-export type BobeUI = (this: Store, options: CustomRenderConf, valOpt: TerpConf) => ComponentNode;
+export type BobeUI = (
+  this: Store,
+  options: CustomRenderConf,
+  valOpt: TerpConf,
+  root: any,
+  after?: any
+) => ComponentNode;
 
 export type StackItem = {
-  /** 表示当前节点子节点已处理完毕 */
-  prevSibling: any;
+  /** 插入到 prev 后 */
+  prev: any;
   /** 当前节点*/
   node: any;
 };
@@ -76,8 +84,10 @@ export type IfNode = LogicNode & {
 
 export type LogicNode = {
   __logicType: LogicType;
-  directList?: any[];
-  realList: any[];
+  realParent: any;
+  realBefore?: any;
+  realAfter?: any;
+  lastInserted?: any;
 };
 
 export type FragmentNode = LogicNode & {};
