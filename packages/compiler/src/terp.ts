@@ -1,5 +1,5 @@
 import { Tokenizer } from './tokenizer';
-import { $, effect, Keys, shareSignal, Signal, Store } from 'aoye';
+import { $, effect, getPulling, Keys, runWithPulling, setPulling, shareSignal, Signal, Store } from 'aoye';
 import {
   BobeUI,
   ComponentNode,
@@ -9,8 +9,11 @@ import {
   HookProps,
   HookType,
   IfNode,
+  IsAnchor,
+  Logical,
   LogicNode,
   LogicType,
+  NodeType,
   ProgramCtx,
   StackItem,
   TerpConf,
@@ -18,6 +21,7 @@ import {
   TokenType
 } from './type';
 import { BaseEvent } from 'bobe-shared';
+import { TypedStack } from './typed-stack';
 const tap = new BaseEvent();
 
 export class Interpreter {
@@ -30,10 +34,9 @@ export class Interpreter {
   lastInserted;
   opt: TerpConf;
   constructor(private tokenizer: Tokenizer) {}
-  // /** program 要挂载的父节点位置 */
-  // root: any;
-  // /** program 挂载的前置节点 */
-  // anchor: any;
+  isLogicNode(node: any) {
+    return node && node.__logicType & Logical;
+  }
 
   program(root: any, before?: any) {
     const componentNode: ComponentNode = {
@@ -42,12 +45,22 @@ export class Interpreter {
       store: new Store()
     };
     this.tokenizer.consume();
-    let prevSibling: any = null;
-    let current: any;
-    const stack: StackItem[] = [{ node: root, prev: prevSibling }];
+    const stack = new TypedStack<StackItem, NodeType>();
+    stack.push({ node: root, prev: null }, NodeType.Real);
+
+    const ctx: ProgramCtx = {
+      realParent: root,
+      prevSibling: before,
+      current: null,
+      stack,
+      before
+    };
+
+    const rootPulling = getPulling();
     while (1) {
       if (this.tokenizer.isEof()) {
-        this.handleInsert(root, current, prevSibling, componentNode);
+        if (!ctx.prevSibling) ctx.prevSibling = before;
+        this.handleInsert(root, ctx.current, ctx.prevSibling, componentNode);
         break;
       }
 
@@ -55,46 +68,79 @@ export class Interpreter {
       // 下沉，创建 child0
       if (token.type & TokenType.Indent) {
         const INDENT = this.tokenizer.consume();
-        stack.push({
-          node: current,
-          prev: prevSibling
-        });
-        current = this.declaration({ stack, prevSibling });
-        prevSibling = null;
+        const isLogicNode = this.isLogicNode(ctx.current);
+        stack.push(
+          {
+            node: ctx.current,
+            prev: ctx.prevSibling
+          },
+          ctx.current.__logicType ? (isLogicNode ? NodeType.Logic : NodeType.Component) : NodeType.Real
+        );
+        if (ctx.current.__logicType) {
+          // 父节点是逻辑节点
+          if (isLogicNode) {
+            // 保证 if 子逻辑节点能被其 effect 管理
+            setPulling(ctx.current.effect.ins);
+          }
+        }
+        // 父节点是原生节点时才修改 ctx.prevSibling
+        else {
+          ctx.realParent = ctx.current;
+          ctx.prevSibling = null;
+        }
+        ctx.current = this.declaration(ctx);
         continue;
       }
-      // token 不是 Indent ，就是 同级节点 或 Dedent
-      // 将之前产生的 current 添加到父节点
-      if (current) {
-        if (stack.length > 1) {
-          const { node: parent } = stack[stack.length - 1];
-          // 子节点是逻辑节点，其会通过自身 program 进行元素挂载
-          this.handleInsert(parent, current, prevSibling);
+      // Token 不论指示找 下一个同级节点，还是 Dedent, 都将当前节点插入
+      if (ctx.current) {
+        // root 下第一个子节点应该插入在 before 之后
+        if (stack.length === 1 && !ctx.prevSibling) {
+          ctx.prevSibling = before;
         }
-        // 处理 root 下的子节点
-        else {
-          if (!prevSibling) {
-            prevSibling = before;
-          }
-          this.handleInsert(root, current, prevSibling, componentNode);
-        }
+        this.handleInsert(ctx.realParent, ctx.current, ctx.prevSibling);
       }
       // 下一个 token 是 Dedent
       if (this.tokenizer.token.type & TokenType.Dedent) {
         const DEDENT = this.tokenizer.consume();
-        const { node: parent, prev } = stack.pop();
-        prevSibling = prev;
-        current = parent;
+        const { node: parent, prev } = stack.peek();
+        // 弹出原生节点，找最近的 ctx.realParent
+        if (!parent.__logicType) {
+          const prevSameType = stack.getPrevSameType();
+          ctx.realParent = prevSameType?.node;
+        }
+        // 弹出逻辑节点，
+        else {
+          // 考虑 if, for 等获取最后一个插入节点
+          if (this.isLogicNode(parent)) {
+            // 找最近的 if for
+            const parentLogic = stack.getPrevSameType()?.node;
+            if (parentLogic) {
+              setPulling(parentLogic.effect.ins);
+            } else {
+              setPulling(rootPulling);
+            }
+          }
+        }
+        stack.pop();
+        ctx.prevSibling = prev;
+        ctx.current = parent;
       }
       // 下一个是 同级节点
       else {
-        prevSibling = current;
-        current = this.declaration({ stack, prevSibling });
+        ctx.prevSibling = ctx.current || ctx.prevSibling;
+        ctx.current = this.declaration(ctx);
       }
     }
-    componentNode.lastInserted = this.lastInserted;
-    this.lastInserted = null;
     return componentNode;
+  }
+
+  insertAfterAnchor(ctx: ProgramCtx) {
+    const { realParent, prevSibling, stack, before } = ctx;
+    // 先将 after 插入
+    const afterAnchor = this.createAnchor();
+    ctx.prevSibling = stack.length === 1 && !prevSibling ? before : prevSibling;
+    this.handleInsert(realParent, afterAnchor, prevSibling);
+    return afterAnchor;
   }
 
   /** 处理
@@ -108,43 +154,27 @@ export class Interpreter {
     if (parentComponent) {
       // parentComponent.directList.push(child);
     }
-    // 子 不是 逻辑节点则加入
+    // 子 普通节点
     if (!child.__logicType) {
       // 前置节点空 或 普通节点
       if (!prev || !prev.__logicType) {
         this.insertAfter(parent, child, prev);
       }
-      // 前置节点是逻辑节点
+      // 前置节点是逻辑节点，必定有 after
       else {
-        const before = prev.lastInserted;
-        // const anchor = this.createAnchor();
-        // // 逻辑 -> anchor -> child
-        // this.insertAfter(parent, anchor, before);
+        const before = prev.realAfter;
         this.insertAfter(parent, child, before);
-        prev.realAfter = child;
       }
     }
     // 子 是 逻辑节点
     else {
       const childCmp: LogicNode = child;
       childCmp.realParent = parent;
-      // 前置节点空
-      if (!prev) {
-        const anchor = this.createAnchor();
-        this.insertAfter(parent, anchor, prev);
-        this.insertAfter(parent, child, anchor);
-        childCmp.realBefore = anchor;
+      // 前置 -> 逻辑节点
+      if (prev.__logicType) {
+        childCmp.realBefore = prev.realAfter;
       }
-      // 前置是逻辑节点
-      else if (prev.__logicType) {
-        const before = prev.lastInserted;
-        const anchor = this.createAnchor();
-        this.insertAfter(parent, anchor, before);
-        this.insertAfter(parent, child, anchor);
-        childCmp.realBefore = anchor;
-        prev.realAfter = anchor;
-      }
-      // 前置节点普通
+      // 前置 -> 普通节点
       else {
         childCmp.realBefore = prev;
       }
@@ -176,7 +206,7 @@ export class Interpreter {
     let _node: any;
 
     if (value === 'if') {
-      return this.ifDeclaration();
+      return this.ifDeclaration(ctx);
     } else if (hookType) {
       // 静态 1. Component，2. bobe 返回的 render 方法
       if (hookType === 'static') {
@@ -277,40 +307,91 @@ export class Interpreter {
         child[Keys.Raw][key] = value;
       }
     };
-
+    const afterAnchor = this.insertAfterAnchor(ctx);
     tap.once(TerpEvt.AllAttrGot, () => {
       // 执行 program 时需要挂载到 parent
-      const parent = ctx.stack[ctx.stack.length - 1].node;
+      const parent = ctx.realParent;
       const prev = ctx.prevSibling;
       this.onePropParsed = prevOnePropParsed;
       const componentNode = (child['ui'] as BobeUI)(this.opt, { data: child }, parent, prev);
+      componentNode.realAfter = afterAnchor;
       tap.emit(TerpEvt.HandledComponentNode, componentNode);
     });
     return { __logicType: LogicType.Component };
   }
 
-  ifDeclaration() {
+  ifDeclaration(ctx: ProgramCtx) {
     const ifIdentifier = this.tokenizer.consume();
-    const [isHook, value] = this._hook({});
+    const [hookType, value] = this._hook({});
     const ifNode: IfNode = {
       __logicType: LogicType.If,
-      condition: value,
-      realParent: null,
       snapshot: this.tokenizer.snapshot(),
+      condition: null,
+      realParent: null,
       isFirstRender: true,
-      watcher: null,
-      anchor: null
+      effect: null
     };
-    ifNode.watcher = effect(
+
+    const valueIsMapKey = Reflect.has(this.data[Keys.Raw], value);
+    let signal: Signal;
+    if (valueIsMapKey) {
+      // 确保 signal 已生成
+      runWithPulling(() => this.data[value], null);
+      // 拿到 signal
+      const { cells } = this.data[Keys.Meta];
+      signal = cells.get(value);
+    } else {
+      const fn = new Function('data', `let v;with(data){v=${value}};return v;`).bind(undefined, this.data);
+      // 是 getter 使用 computed 计算出一个 signal
+      signal = $(fn);
+    }
+    ifNode.condition = signal;
+    // 不论是否执行 if 都应该插入 anchor 节点用于后续
+    ifNode.realAfter = this.insertAfterAnchor(ctx);
+
+    ifNode.effect = effect(
       ({ val }) => {
+        // 如果值是 true 则直接放行让下面的节点自然执行插入
         if (val) {
-          const condition = this.tokenizer.consume();
-          const newLine = this.tokenizer.consume();
-        } else {
-          const skipStr = this.tokenizer.skip();
+          if (ifNode.isFirstRender) {
+            const condition = this.tokenizer.consume();
+            const newLine = this.tokenizer.consume();
+          }
+          // 更新渲染
+          else {
+            /**
+             *  condition 在首屏对应的是 当前 token, resume 时被设置为空
+             *  newLine 被用于判断起始缩进所消耗
+             */
+            this.tokenizer.resume(ifNode.snapshot);
+
+            // TODO: 由于首屏渲染直接放行，导致 if 子节点首屏产生的 effect 不能被管理
+            // 在 effect 中创建的子组件 sub effect 能被管理
+            // 当 if = false 时，不需要执行销毁子 effect 操作
+            // 因为当外部 effect 重新执行时，上次尝试的 sub effect 自动销毁
+            // 前提是 sub effect 是嵌套执行的
+            this.program(ifNode.realParent, ifNode.realBefore);
+          }
         }
+        // 删除逻辑块
+        else {
+          if (ifNode.isFirstRender) {
+            const skipStr = this.tokenizer.skip();
+          }
+          // 更新渲染，删除所有节点
+          else {
+            const { realBefore, realAfter, realParent } = ifNode;
+            let point = this.nextSib(realBefore);
+            while (point !== realAfter) {
+              const next = this.nextSib(point);
+              this.remove(point, realParent, realBefore);
+              point = next;
+            }
+          }
+        }
+        ifNode.isFirstRender = false;
       },
-      [value]
+      [signal]
     );
     return ifNode;
   }
@@ -410,6 +491,11 @@ export class Interpreter {
     return node.nextSibling;
   }
 
+  _createAnchor() {
+    const anchor = this.createAnchor();
+    anchor[IsAnchor] = true;
+    return anchor;
+  }
   createAnchor() {
     return {
       name: 'anchor',
@@ -418,7 +504,6 @@ export class Interpreter {
   }
 
   insertAfter(parent: any, node: any, prev: any) {
-    this.lastInserted = node;
     return this.defaultInsert(parent, node, prev);
   }
   defaultInsert(parent: any, node: any, prev: any) {
@@ -431,11 +516,11 @@ export class Interpreter {
     }
   }
 
-  remove(parent: any, node: any, prevSibling: any) {
-    return this.defaultRemove(parent, node, prevSibling);
+  remove(node: any, parent?: any, prev?: any) {
+    return this.defaultRemove(node, parent, prev);
   }
   // TODO: 默认改成 prevItem
-  defaultRemove(parent: any, node: any, prevSibling: any) {
+  defaultRemove(node: any, parent: any, prevSibling: any) {
     const next = node.nextSibling;
     if (prevSibling) {
       prevSibling.nextSibling = next;

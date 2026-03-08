@@ -1,6 +1,7 @@
-import { Store } from 'aoye';
+import { Dispose, Signal, Store } from 'aoye';
 import type { Tokenizer } from './tokenizer';
 import type { Interpreter } from './terp';
+import type { TypedStack } from './typed-stack';
 
 export enum TokenType {
   NewLine = 0b0000_0000_0000_0000_0000_0000_0000_0001,
@@ -20,7 +21,17 @@ export enum LogicType {
   For = 0b0000_0000_0000_0000_0000_0000_0000_1000,
   Component = 0b0000_0000_0000_0000_0000_0000_0001_0000,
   Fragment = 0b0000_0000_0000_0000_0000_0000_0010_0000,
-  Root = 0b0000_0000_0000_0000_0000_0000_0100_0000
+  Root = 0b0000_0000_0000_0000_0000_0000_0100_0000,
+  // 仅占位
+  Real = 0b0000_0000_0000_0000_0000_0000_1000_0000
+}
+
+export const Logical = LogicType.If | LogicType.ElseIf | LogicType.Else | LogicType.For;
+
+export enum NodeType {
+  Logic = Logical,
+  Real = LogicType.Real,
+  Component = LogicType.Component
 }
 
 export enum TerpEvt {
@@ -31,6 +42,7 @@ export enum TerpEvt {
 export type BaseType = string | number | boolean | undefined | null;
 
 export const InsComputed = Symbol('insertion-computed-map-key');
+export const IsAnchor = Symbol('is-anchor');
 
 export type Token = {
   type: TokenType;
@@ -56,7 +68,13 @@ export type Hook = (props: HookProps) => any;
 
 export type HookType = 'dynamic' | 'static';
 
-export type ProgramCtx = { stack: StackItem[]; prevSibling: any };
+export type ProgramCtx = {
+  stack: TypedStack<any, NodeType>;
+  prevSibling: any;
+  realParent: any;
+  current: any;
+  before: any;
+};
 
 /** 返回值是用户自定义的节点 */
 export type BobeUI = (
@@ -75,11 +93,10 @@ export type StackItem = {
 };
 
 export type IfNode = LogicNode & {
-  condition: () => any;
-  anchor: any;
+  condition: Signal;
   isFirstRender: boolean;
   snapshot: ReturnType<Tokenizer['snapshot']>;
-  watcher: { stop: () => void };
+  effect: Dispose;
 };
 
 export type LogicNode = {

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script type="importmap">
+  {
+    "imports": {
+      "aoye": "./node_modules/aoye/dist/aoye.esm.js",
+      "bobe-shared": "./node_modules/bobe-shared/dist/bobe-shared.esm.js",
+      "bobe": "./dist/bobe.esm.js"
+    }
+  }
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"
+    integrity="sha512-v2CJ7UaYy4JwqLDIrZUI/4hqeoQieOmAZNXBeQyjo21dadnwR+8ZaIJVT8EE2iyI61OV8e6M8PP2/4hpQINQ/g=="
+    crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/default.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script>hljs.highlightAll();</script>
+</head>
+
+<body>
+  <button id="out">showOuter = <span id="out-bool"></span></button>
+  <button id="in">showInner = <span id="in-bool"></span></button>
+  <pre><code id="output" class="language-json"></code></pre>
+</body>
+<script type="module">
+  import { bobe, Store, customRender } from 'bobe';
+  const render = customRender({});
+  class App extends Store {
+    count = 10;
+    show = false;
+    show2 = true;
+    updateCount = () => {
+      this.count++;
+    };
+    ui = bobe`
+    node1 k1={count}
+      node1_1 k2=2 k3=3
+        node1_1_1 k6=6
+    node2
+    | p1=1
+    | p2=2 p3=3
+      node2_1
+      | p4=4 p5=5 p6=6
+      node2_2
+      | p7=7
+    if {show}
+      node3
+    if {show2}
+      ${B} v={99}
+    node4 foo='bar'
+  `;
+  }
+  class B extends Store {
+    v = 1;
+    name = '😁';
+    updateName = () => {
+      this.name = '🤡';
+    };
+    ui = bobe`
+    bbb hello={v}
+    nb name={name}
+  `;
+  }
+
+  const root = {
+    name: 'root'
+  };
+  const [rootComponent, store] = render(App, root);
+  window.root = root;
+  window.rootComponent = rootComponent;
+
+  $('#out-bool').text(store.show);
+  $('#in-bool').text(store.show2);
+  log();
+  $('#out').on('click', () => {
+    store.show = !store.show;
+    $('#out-bool').text(store.show);
+    log()
+  });
+  $('#in').on('click', () => {
+    store.show2 = !store.show2;
+    $('#in-bool').text(store.show2);
+    log()
+  });
+
+  function log () {
+    $('#output').text(JSON.stringify(childToArray(root), undefined, 2));
+  }
+
+  function childToArray (node) {
+    const newNode = {};
+    const children = [];
+    let point = node.firstChild;
+
+    while (point) {
+      const item = childToArray(point);
+      children.push(item);
+      point = point.nextSibling;
+    }
+
+    for (const key in node) {
+      if (key === 'firstChild' || key === 'lastChild' || key === 'nextSibling') {
+        continue;
+      }
+      newNode[key] = node[key];
+    }
+    newNode.children = children;
+    return newNode;
+  }
+</script>
+
+</html>

@@ -56,7 +56,7 @@ export class Tokenizer {
   }
 
   skip() {
-    const dentLen = this.dentStack[this.dentStack.length - 1];
+    const logicDentLen = this.dentStack[this.dentStack.length - 1];
     let needIndent = false;
     /** \n 是为了弥补 if 节点 consume condition 后，已将 token 设置成回车 */
     let skipFragment = ``;
@@ -82,7 +82,7 @@ export class Tokenizer {
       const { value, isEmptyLine } = this.getDentValue();
       const currLen = value.length;
       if (isEmptyLine) continue;
-      if (value.length > dentLen) {
+      if (currLen > logicDentLen) {
         skipFragment += value;
       }
       // 找到与条件节点同级或更短的缩进了，结束。
@@ -98,7 +98,12 @@ export class Tokenizer {
           if (currLen > expLen) {
             throw SyntaxError(`缩进错误，缩进长度不匹配`);
           }
-          //  小于 expLen
+
+          //  小于 expLen 检查是否是基础缩进
+          if (this.shorterThanBaseDentEof()) {
+            break;
+          }
+
           this.dentStack.pop();
 
           if (!this.token) {
@@ -321,7 +326,7 @@ export class Tokenizer {
           count--;
         }
       }
-      
+
       if (count === 0 && inString == null && inComment == null) {
         this.setToken(TokenType.InsertionExp, value.slice(1));
         return;
@@ -411,14 +416,18 @@ export class Tokenizer {
     }
     if (currLen < prevLen) {
       // 一直找到最小
-      for (let i = this.dentStack.length - 2; i >= 0; i--) {
+      for (let i = this.dentStack.length; i--; ) {
         const expLen = this.dentStack[i];
-        const prevExpLen = this.dentStack[i + 1];
+        // 等于
+        if (currLen === expLen) break;
         // 夹在两者说明缩进大小有问题
-        if (currLen > expLen && currLen < prevExpLen) {
+        if (currLen > expLen) {
           throw SyntaxError('缩进大小不统一');
         }
-        // current <= expLen 反缩进
+        //  小于 expLen 检查是否是基础缩进
+        if (this.shorterThanBaseDentEof()) {
+          return;
+        }
         this.dentStack.pop();
         if (!this.token) {
           this.setToken(TokenType.Dedent, String(expLen));
@@ -431,15 +440,29 @@ export class Tokenizer {
             value: String(expLen)
           });
         }
-        if (currLen === expLen) {
-          break;
-        }
       }
       return indentHasLen;
     }
     // 同级则无视
     return indentHasLen;
   }
+
+  private shorterThanBaseDentEof() {
+    const yes = this.dentStack.length === 1;
+    if (yes) {
+      if (!this.token) {
+        this.setToken(TokenType.Identifier, Tokenizer.EofId);
+      } else {
+        this.waitingTokens.push({
+          type: TokenType.Identifier,
+          typeName: TokenType[TokenType.Identifier],
+          value: Tokenizer.EofId
+        });
+      }
+    }
+    return yes;
+  }
+
   private identifier(char: string) {
     let value = char;
     let nextC;

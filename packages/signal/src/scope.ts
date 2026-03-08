@@ -124,7 +124,7 @@ function releaseScope(scope: Signal) {
 }
 
 export function clean(cb: () => void) {
-  G.PullingSignal.clean = () => runWithPulling(cb, null) ;
+  G.PullingSignal.clean = () => runWithPulling(cb, null);
 }
 
 export function runWithPulling<T extends (...args: any[]) => any>(fn: T, signal: Signal | null): ReturnType<T> {
@@ -133,4 +133,11 @@ export function runWithPulling<T extends (...args: any[]) => any>(fn: T, signal:
   const res = fn();
   G.PullingSignal = prevPulling;
   return res;
+}
+
+export function getPulling() {
+  return G.PullingSignal;
+}
+export function setPulling(pulling: Signal | null) {
+  G.PullingSignal = pulling;
 }
