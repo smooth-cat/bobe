@@ -65,4 +65,4 @@ jobs:
           git add .
           git commit -m "release: ${{ env.NEW_VERSION }}"
           git tag "v${{ env.NEW_VERSION }}"
-          git push origin feature/ci --tags
+          git push origin main --tags
