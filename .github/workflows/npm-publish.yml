@@ -1,19 +1,18 @@
 name: Manual Publish
 
-# on:
-#   workflow_dispatch:
-#     inputs:
-#       release_type:
-#         description: '选择版本更新类型 (patch, minor, major)'
-#         required: true
-#         default: 'patch'
-#         type: choice
-#         options:
-#           - patch
-#           - minor
-#           - major
-on: push
-
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: '选择版本更新类型 (patch, minor, major)'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+# on: push
 jobs:
   publish:
     runs-on: ubuntu-latest
