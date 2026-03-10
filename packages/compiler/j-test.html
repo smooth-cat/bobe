@@ -24,6 +24,7 @@
 <body>
   <button id="out">showOuter = <span id="out-bool"></span></button>
   <button id="in">showInner = <span id="in-bool"></span></button>
+  k1：<input id="k1" />
   <pre><code id="output" class="language-json"></code></pre>
 </body>
 <script type="module">
@@ -31,29 +32,23 @@
   const render = customRender({});
   class App extends Store {
     count = 10;
-    show = false;
+    show = true;
     show2 = true;
     updateCount = () => {
       this.count++;
     };
     ui = bobe`
-    node1 k1={count}
-      node1_1 k2=2 k3=3
-        node1_1_1 k6=6
-    node2
-    | p1=1
-    | p2=2 p3=3
-      node2_1
-      | p4=4 p5=5 p6=6
-      node2_2
-      | p7=7
-    if {show}
-      node3
-    if {show2}
-      ${B} v={99}
-    node4 foo='bar'
-  `;
+      if {show}
+        show
+      if {show2}
+        show2
+      else
+        fallback
+    `;
   }
+
+
+
   class B extends Store {
     v = 1;
     name = '😁';
@@ -72,10 +67,16 @@
   const [rootComponent, store] = render(App, root);
   window.root = root;
   window.rootComponent = rootComponent;
+  window.store = store;
 
   $('#out-bool').text(store.show);
   $('#in-bool').text(store.show2);
+  $('#k1').val(store.count);
   log();
+  $('#k1').on('input', () => {
+    store.count = parseInt($('#k1').val());
+    log();
+  });
   $('#out').on('click', () => {
     store.show = !store.show;
     $('#out-bool').text(store.show);
@@ -108,7 +109,9 @@
       }
       newNode[key] = node[key];
     }
-    newNode.children = children;
+    if (children.length) {
+      newNode.children = children;
+    }
     return newNode;
   }
 </script>

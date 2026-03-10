@@ -16,7 +16,7 @@ export enum TokenType {
 
 export enum LogicType {
   If = 0b0000_0000_0000_0000_0000_0000_0000_0001,
-  ElseIf = 0b0000_0000_0000_0000_0000_0000_0000_0010,
+  Fail = 0b0000_0000_0000_0000_0000_0000_0000_0010,
   Else = 0b0000_0000_0000_0000_0000_0000_0000_0100,
   For = 0b0000_0000_0000_0000_0000_0000_0000_1000,
   Component = 0b0000_0000_0000_0000_0000_0000_0001_0000,
@@ -26,7 +26,9 @@ export enum LogicType {
   Real = 0b0000_0000_0000_0000_0000_0000_1000_0000
 }
 
-export const Logical = LogicType.If | LogicType.ElseIf | LogicType.Else | LogicType.For;
+export const Logical = LogicType.If | LogicType.Fail | LogicType.Else | LogicType.For;
+
+export const CondType = LogicType.If | LogicType.Fail | LogicType.Else;
 
 export enum NodeType {
   Logic = Logical,
@@ -97,6 +99,7 @@ export type IfNode = LogicNode & {
   isFirstRender: boolean;
   snapshot: ReturnType<Tokenizer['snapshot']>;
   effect: Dispose;
+  preCond: IfNode | null;
 };
 
 export type LogicNode = {

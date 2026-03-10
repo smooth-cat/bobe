@@ -3,6 +3,7 @@ import { $, effect, getPulling, Keys, runWithPulling, setPulling, shareSignal, S
 import {
   BobeUI,
   ComponentNode,
+  CondType,
   CustomRenderConf,
   FragmentNode,
   Hook,
@@ -18,6 +19,7 @@ import {
   StackItem,
   TerpConf,
   TerpEvt,
+  Token,
   TokenType
 } from './type';
 import { BaseEvent } from 'bobe-shared';
@@ -85,7 +87,9 @@ export class Interpreter {
         }
         // 父节点是原生节点时才修改 ctx.prevSibling
         else {
-          ctx.realParent = ctx.current;
+          if (ctx.current) {
+            ctx.realParent = ctx.current;
+          }
           ctx.prevSibling = null;
         }
         ctx.current = this.declaration(ctx);
@@ -106,7 +110,7 @@ export class Interpreter {
         // 弹出原生节点，找最近的 ctx.realParent
         if (!parent.__logicType) {
           const prevSameType = stack.getPrevSameType();
-          ctx.realParent = prevSameType?.node;
+          ctx.realParent = prevSameType?.node || root;
         }
         // 弹出逻辑节点，
         else {
@@ -171,7 +175,7 @@ export class Interpreter {
       const childCmp: LogicNode = child;
       childCmp.realParent = parent;
       // 前置 -> 逻辑节点
-      if (prev.__logicType) {
+      if (prev?.__logicType) {
         childCmp.realBefore = prev.realAfter;
       }
       // 前置 -> 普通节点
@@ -205,8 +209,8 @@ export class Interpreter {
     const [hookType, value] = this._hook({});
     let _node: any;
 
-    if (value === 'if') {
-      return this.ifDeclaration(ctx);
+    if (value === 'if' || value === 'else' || value === 'fail') {
+      return this.condDeclaration(ctx);
     } else if (hookType) {
       // 静态 1. Component，2. bobe 返回的 render 方法
       if (hookType === 'static') {
@@ -308,10 +312,11 @@ export class Interpreter {
       }
     };
     const afterAnchor = this.insertAfterAnchor(ctx);
+    const { realParent, prevSibling } = ctx;
     tap.once(TerpEvt.AllAttrGot, () => {
       // 执行 program 时需要挂载到 parent
-      const parent = ctx.realParent;
-      const prev = ctx.prevSibling;
+      const parent = realParent;
+      const prev = prevSibling;
       this.onePropParsed = prevOnePropParsed;
       const componentNode = (child['ui'] as BobeUI)(this.opt, { data: child }, parent, prev);
       componentNode.realAfter = afterAnchor;
@@ -319,32 +324,96 @@ export class Interpreter {
     });
     return { __logicType: LogicType.Component };
   }
+  // TODO: 优化代码逻辑，拆分 if elseif else
+  condDeclaration(ctx: ProgramCtx) {
+    const { prevSibling } = ctx;
+    const snapbackUp = this.tokenizer.snapshot();
+    const keyWord = this.tokenizer.consume();
+    const noSelfCond = this.tokenizer.token.type === TokenType.NewLine;
 
-  ifDeclaration(ctx: ProgramCtx) {
-    const ifIdentifier = this.tokenizer.consume();
     const [hookType, value] = this._hook({});
+    const isElse = keyWord.value === 'else';
+    const isIf = keyWord.value === 'if';
+    const preIsCond = prevSibling?.__logicType & CondType;
+    // 需要和前一个节点的 condition 合并计算
+    const needCalcWithPrevIf = isElse && preIsCond;
     const ifNode: IfNode = {
-      __logicType: LogicType.If,
-      snapshot: this.tokenizer.snapshot(),
+      __logicType: isElse ? LogicType.Else : isIf ? LogicType.If : LogicType.Fail,
+      snapshot: noSelfCond ? snapbackUp : this.tokenizer.snapshot(),
       condition: null,
       realParent: null,
+      preCond: preIsCond ? prevSibling : null,
       isFirstRender: true,
       effect: null
     };
-
-    const valueIsMapKey = Reflect.has(this.data[Keys.Raw], value);
     let signal: Signal;
-    if (valueIsMapKey) {
-      // 确保 signal 已生成
-      runWithPulling(() => this.data[value], null);
-      // 拿到 signal
-      const { cells } = this.data[Keys.Meta];
-      signal = cells.get(value);
+
+    // 纯 else 节点，一定要前置节点的取反
+    if (noSelfCond) {
+      if (isElse) {
+        signal = $(() => {
+          let point = ifNode.preCond;
+          while (point) {
+            if (point.condition.v) {
+              return false;
+            }
+            // else 的条件判断应该停止在第一个访问到的 if 节点
+            if (point.__logicType === LogicType.If) {
+              break;
+            }
+            point = point.preCond;
+          }
+          return true;
+        });
+      }
+      // default
+      else {
+        signal = $(() => {
+          let point = ifNode.preCond;
+          while (point) {
+            if (point.condition.v) {
+              return false;
+            }
+            point = point.preCond;
+          }
+          return true;
+        });
+      }
     } else {
-      const fn = new Function('data', `let v;with(data){v=${value}};return v;`).bind(undefined, this.data);
-      // 是 getter 使用 computed 计算出一个 signal
-      signal = $(fn);
+      const valueIsMapKey = Reflect.has(this.data[Keys.Raw], value);
+      // 为键映射
+      if (valueIsMapKey && !needCalcWithPrevIf) {
+        // 确保 signal 已生成
+        runWithPulling(() => this.data[value], null);
+        // 拿到 signal
+        const { cells } = this.data[Keys.Meta];
+        signal = cells.get(value);
+      }
+      // 通过前置条件 和 computed 计算出
+      else {
+        const fn = new Function('data', `let v;with(data){v=${value}};return v;`).bind(undefined, this.data);
+        if (needCalcWithPrevIf) {
+          signal = $(() => {
+            let point = ifNode.preCond;
+            while (point) {
+              if (point.condition.v) {
+                return false;
+              }
+              // else 的条件判断应该停止在第一个访问到的 if 节点
+              if (point.__logicType === LogicType.If) {
+                break;
+              }
+              point = point.preCond;
+            }
+            return fn();
+          });
+        } else {
+          // 是 getter 使用 computed 计算出一个 signal
+          signal = $(fn);
+        }
+      }
     }
+
     ifNode.condition = signal;
     // 不论是否执行 if 都应该插入 anchor 节点用于后续
     ifNode.realAfter = this.insertAfterAnchor(ctx);
@@ -354,7 +423,9 @@ export class Interpreter {
         // 如果值是 true 则直接放行让下面的节点自然执行插入
         if (val) {
           if (ifNode.isFirstRender) {
-            const condition = this.tokenizer.consume();
+            if (!noSelfCond) {
+              const condition = this.tokenizer.consume();
+            }
             const newLine = this.tokenizer.consume();
           }
           // 更新渲染
@@ -376,12 +447,18 @@ export class Interpreter {
         // 删除逻辑块
         else {
           if (ifNode.isFirstRender) {
+            if (noSelfCond) {
+              // 让 '/n‘ 能被跳过
+              this.tokenizer.i = this.tokenizer.i - 1;
+              // else 时消费了一个 \n 导致 needDent 被置为 true
+              this.tokenizer.needIndent = false;
+            }
             const skipStr = this.tokenizer.skip();
           }
           // 更新渲染，删除所有节点
           else {
             const { realBefore, realAfter, realParent } = ifNode;
-            let point = this.nextSib(realBefore);
+            let point = realBefore ? this.nextSib(realBefore) : this.kid(realParent);
             while (point !== realAfter) {
               const next = this.nextSib(point);
               this.remove(point, realParent, realBefore);
@@ -491,6 +568,10 @@ export class Interpreter {
     return node.nextSibling;
   }
 
+  kid(node: any) {
+    return node.firstChild;
+  }
+
   _createAnchor() {
     const anchor = this.createAnchor();
     anchor[IsAnchor] = true;
@@ -512,7 +593,9 @@ export class Interpreter {
       prev.nextSibling = node;
       node.nextSibling = next;
     } else {
+      const next = parent.firstChild;
       parent.firstChild = node;
+      node.nextSibling = next;
     }
   }
 
