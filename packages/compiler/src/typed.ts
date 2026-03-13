@@ -7,19 +7,20 @@ type Type = 'A' | 'B' | 'C';
 interface StackNode<T> {
   value: T;
   types: NodeSortBit;
-  prevGlobal: StackNode<T> | null;
+  // prevGlobal: StackNode<T> | null;
   // 核心：记录在该节点加入时，各个类别的上一个节点是谁
   prevByType: Partial<Record<number, StackNode<T>>>;
 }
 
 export class MultiTypeStack<T> {
   // 记录全局栈顶
-  private top: StackNode<T> | null = null;
+  // private top: StackNode<T> | null = null;
 
   // 记录每个类别的当前最新节点（各分类的“栈顶”）
   private typeTops: Partial<Record<number, StackNode<T>>> = {};
 
   length = 0;
+  stack: StackNode<T>[] = [];
   /**
    * 入栈操作
    * @param value 数据
@@ -29,7 +30,6 @@ export class MultiTypeStack<T> {
     const newNode: StackNode<T> = {
       value,
       types: bits,
-      prevGlobal: this.top,
       prevByType: {}
     };
 
@@ -44,19 +44,17 @@ export class MultiTypeStack<T> {
       newNode.prevByType[bit] = this.typeTops[bit] || undefined;
       this.typeTops[bit] = newNode;
     }
-
-    // 更新全局栈顶
-    this.top = newNode;
-    this.length++;
+    this.stack[this.length++] = newNode;
   }
 
   /**
    * 出栈操作
    */
   pop() {
-    if (!this.top) return undefined;
+    const poppedNode = this.stack[this.length - 1];
+    this.stack[--this.length] = null;
+    if (!poppedNode) return undefined;
 
-    const poppedNode = this.top;
     let { types: bits } = poppedNode;
 
     let bit: number;
@@ -71,8 +69,6 @@ export class MultiTypeStack<T> {
     }
 
     // 更新全局栈顶
-    this.top = poppedNode.prevGlobal;
-    this.length--;
     return [poppedNode.value, poppedNode.types] as const;
   }
 
@@ -84,14 +80,14 @@ export class MultiTypeStack<T> {
   }
 
   peekType(): number | undefined {
-    return this.top?.types;
+    return this.stack.at(-1).types;
   }
 
   /**
    * 获取全局栈顶
    */
   peek(): T | undefined {
-    return this.top?.value;
+    return this.stack.at(-1).value;
   }
 
   // /**
