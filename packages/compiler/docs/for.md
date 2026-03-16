@@ -55,6 +55,23 @@
 2. init 由 tokenizer 管理
 3. 
 
+```js
+for val ; item i ; key={}
+// 1. 将 { a } => { a: data.a }
+// 2. 将 { a:b } => { a: data.b }
+// 3. 将 { a: {c:d} } => { a: { c:data.d } }
+// 4. 将 { ...rest } => { ...rest: data.rest}
+
+function(data, item) {
+  with(data){
+		const 解构表达式 = item;
+    const key = xxx
+  }
+  return []
+}
+
+```
+
 
 
 

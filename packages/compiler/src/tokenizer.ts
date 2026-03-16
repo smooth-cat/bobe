@@ -1,4 +1,4 @@
-import { isNum, matchIdStart, Queue } from 'bobe-shared';
+import { isNum, matchIdStart, matchIdStart2, Queue } from 'bobe-shared';
 import { BaseType, Hook, HookProps, HookType, Token, TokenType } from './type';
 
 export class Tokenizer {
@@ -216,7 +216,7 @@ export class Tokenizer {
                 this.number(char);
                 break;
               }
-              if (typeof char === 'string' && matchIdStart(char)) {
+              if (typeof char === 'string' && matchIdStart2(char, 0)) {
                 this.identifier(char);
               }
               break;
@@ -476,7 +476,7 @@ export class Tokenizer {
     let nextC;
     while (1) {
       nextC = this.code[this.i + 1];
-      if (typeof nextC !== 'string' || !matchIdStart(nextC)) {
+      if (typeof nextC !== 'string' || !matchIdStart2(nextC, 0)) {
         break;
       }
       value += nextC;
