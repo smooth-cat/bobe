@@ -510,6 +510,79 @@ describe('scope + effect 测试', () => {
       innerY -> innerEffect
     `);
   });
+
+  it('outEffect - globalScope - innerEffect 嵌套， outEffect 重新执行时 innerEffect 不会被 outEffect 所管理', () => {
+    const log = new Log();
+    const outCount = $(0);
+    const inCount = $(0);
+    let outEffect, globalScope, innerEffect;
+    let isFirstRender = true;
+    // 外部 effect 影响不到 innerEffect
+    outEffect = effect(() => {
+      log.call(`outEffect: ${outCount.v}`);
+      if (isFirstRender) {
+        globalScope = scope(() => {
+          // 里面的 effect 完全被隔离
+          innerEffect = effect(() => {
+            log.call(`innerEffect: ${inCount.v}`);
+          });
+        }, null);
+      }
+      isFirstRender = false;
+    });
+    log.toBe('outEffect: 0', 'innerEffect: 0');
+    expect(innerEffect.ins.scope).toBe(globalScope.ins);
+    expect(inCount.scope).toBeNull();
+    const dep = new DepStr({
+      outEffect,
+      globalScope,
+      innerEffect,
+      outCount,
+      inCount
+    })
+      .depIs(
+        `
+      inCount -> innerEffect -> globalScope
+      outCount -> outEffect
+    `
+      )
+      // globalScope 使用 inCount 作为 effect 的依赖，所以起具有外部引用，而不是effect 具有外部引用
+      .outLinkIs(globalScope, 'inCount')
+      .outLinkIs(innerEffect, '')
+      .outLinkIs(outEffect, '');
+
+    outCount.v++;
+    log.toBe('outEffect: 1');
+
+    inCount.v++;
+    log.toBe('innerEffect: 1');
+    // 更新后依赖依然正常
+    dep
+      .depIs(
+        `
+        inCount -> innerEffect -> globalScope
+        outCount -> outEffect
+      `
+      )
+      .outLinkIs(globalScope, 'inCount')
+      .outLinkIs(innerEffect, '')
+      .outLinkIs(outEffect, '');
+
+    outEffect();
+    outCount.v++;
+    inCount.v++;
+    log.toBe('innerEffect: 2');
+    dep.depIs(`
+      inCount -> innerEffect -> globalScope  
+    `);
+    globalScope();
+    inCount.v++;
+    log.toBe();
+    // innerEffect 被标记为 Abort 无需释放
+    dep.outLinkIs(globalScope, '').depIs(`
+      innerEffect -> globalScope
+    `);
+  });
 });
 
 describe('effect 作为 scope 进行释放', () => {

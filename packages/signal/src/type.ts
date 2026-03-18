@@ -80,6 +80,8 @@ export type ValueDiff = {
   val: any;
 };
 
+export type CreateScope = (customPull: () => void, scope?: Signal) => Dispose;
+
 export type Dispose = {
   (): void;
   ins: Signal;

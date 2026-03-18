@@ -137,13 +137,14 @@ export const shareSignal = (from: any, fromPath: string, to: any, toPath: string
     runWithPulling(() => {
       const { target: fromTarget, key: fromKey } = getTargetAndKey(from, formPaths);
       // 通过 get 陷阱确保 signal 已生成
-      fromTarget[fromKey];
+      const val = fromTarget[fromKey];
       // 获取 signal
       const fromSignal = fromTarget[Keys.Meta].cells.get(fromKey)!;
 
       // 将 signal 共享给 to 代理对象
       const { target: toTarget, key: toKey } = getTargetAndKey(to, toPaths);
       toTarget[Keys.Meta].cells.set(toKey, fromSignal);
+      toTarget[Keys.Raw][toKey] = val;
     }, null);
   } catch (error) {
     console.error('映射了不存在的Key！');

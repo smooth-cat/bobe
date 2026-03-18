@@ -1,4 +1,5 @@
-import { $, effect } from '#/index';
+import { $, effect, Keys } from '#/index';
+import { Log } from '#test/log-order';
 import { Mock } from 'vitest';
 
 describe('Array methods effect tests', () => {
@@ -11,12 +12,25 @@ describe('Array methods effect tests', () => {
     effectSpy = vi.fn();
   });
 
+  describe('Iterator key 订阅验证', () => {
+    it('直接订阅key 应该在 Array 操作函数执行后触发', () => {
+      const log = new Log();
+      effect(() => {
+        const iter = arr[Keys.Iterator];
+        log.call(iter);
+      });
+      log.toBe(undefined);
+      arr.pop();
+      log.toBe(1);
+    });
+  });
+
   describe('Set - 修改数组并触发 iterator 更新', () => {
     it('pop should trigger effect when array changes', () => {
       effect(() => {
         effectSpy(arr.length);
       });
-      
+
       expect(effectSpy).toHaveBeenCalledTimes(1);
       arr.pop();
       expect(effectSpy).toHaveBeenCalledTimes(2);
@@ -27,7 +41,7 @@ describe('Array methods effect tests', () => {
       effect(() => {
         effectSpy(arr.length);
       });
-      
+
       expect(effectSpy).toHaveBeenCalledTimes(1);
       arr.push(4);
       expect(effectSpy).toHaveBeenCalledTimes(2);
@@ -38,7 +52,7 @@ describe('Array methods effect tests', () => {
       effect(() => {
         effectSpy(arr.length);
       });
-      
+
       expect(effectSpy).toHaveBeenCalledTimes(1);
       arr.shift();
       expect(effectSpy).toHaveBeenCalledTimes(2);
@@ -49,7 +63,7 @@ describe('Array methods effect tests', () => {
       effect(() => {
         effectSpy(arr.length);
       });
-      
+
       expect(effectSpy).toHaveBeenCalledTimes(1);
       arr.splice(0, 1, 'new');
       // 执行完成后 length 相同不会触发第二次 effect
@@ -61,7 +75,7 @@ describe('Array methods effect tests', () => {
       effect(() => {
         effectSpy(arr.length);
       });
-      
+
       expect(effectSpy).toHaveBeenCalledTimes(1);
       arr.unshift(0);
       expect(effectSpy).toHaveBeenCalledTimes(2);
@@ -72,7 +86,7 @@ describe('Array methods effect tests', () => {
       effect(() => {
         effectSpy(arr.length);
       });
-      
+
       expect(effectSpy).toHaveBeenCalledTimes(1);
       arr.copyWithin(0, 2, 4);
       expect(effectSpy).toHaveBeenCalledTimes(1);
@@ -83,7 +97,7 @@ describe('Array methods effect tests', () => {
       effect(() => {
         effectSpy(arr.length);
       });
-      
+
       expect(effectSpy).toHaveBeenCalledTimes(1);
       arr.reverse();
       expect(effectSpy).toHaveBeenCalledTimes(1);
@@ -94,7 +108,7 @@ describe('Array methods effect tests', () => {
       effect(() => {
         effectSpy(arr.length);
       });
-      
+
       expect(effectSpy).toHaveBeenCalledTimes(1);
       arr.fill('filled', 1, 3);
       expect(effectSpy).toHaveBeenCalledTimes(1);
@@ -107,7 +121,7 @@ describe('Array methods effect tests', () => {
       effect(() => {
         effectSpy(arr.includes(2));
       });
-      
+
       expect(effectSpy).toHaveBeenCalledWith(true);
       arr[1] = 99; // 修改数组会触发 effect
       expect(effectSpy).toHaveBeenCalledWith(false);
@@ -118,7 +132,7 @@ describe('Array methods effect tests', () => {
       effect(() => {
         effectSpy(arr.indexOf(2));
       });
-      
+
       expect(effectSpy).toHaveBeenCalledWith(1);
       arr[1] = 99; // 修改数组会触发 effect
       expect(effectSpy).toHaveBeenCalledTimes(2);
@@ -129,7 +143,7 @@ describe('Array methods effect tests', () => {
       effect(() => {
         effectSpy(duplicateArr.lastIndexOf(2));
       });
-      
+
       expect(effectSpy).toHaveBeenCalledWith(2);
       duplicateArr[2] = 5; // 修改数组会触发 effect
       expect(effectSpy).toHaveBeenCalledTimes(2);
@@ -145,7 +159,7 @@ describe('Array methods effect tests', () => {
         }
         effectSpy(result.join(','));
       });
-      
+
       expect(effectSpy).toHaveBeenCalledWith('1,2,3,test');
       arr[0] = 'changed';
       expect(effectSpy).toHaveBeenCalledTimes(2);
@@ -160,7 +174,7 @@ describe('Array methods effect tests', () => {
         }
         effectSpy(result.map(([i, v]) => `${i}:${v}`).join(','));
       });
-      
+
       expect(effectSpy).toHaveBeenCalledWith('0:1,1:2,2:3,3:test');
       expect(effectSpy).toHaveBeenCalledTimes(1);
       arr.push(5);
@@ -175,7 +189,7 @@ describe('Array methods effect tests', () => {
         }
         effectSpy(result.join(','));
       });
-      
+
       expect(effectSpy).toHaveBeenCalledWith('1,2,3,test');
       arr[2] = 'modified';
       expect(effectSpy).toHaveBeenCalledTimes(2);
@@ -189,7 +203,7 @@ describe('Array methods effect tests', () => {
         const filtered = arr.filter((x: any) => x !== 2);
         effectSpy(filtered.length);
       });
-      
+
       expect(effectSpy).toHaveBeenCalledWith(3);
       arr[1] = 99; // 修改数组会触发 effect
       expect(effectSpy).toHaveBeenCalledTimes(2);
@@ -200,7 +214,7 @@ describe('Array methods effect tests', () => {
         const sliced = arr.slice(1, 3);
         effectSpy(sliced.length);
       });
-      
+
       expect(effectSpy).toHaveBeenCalledWith(2);
       arr.push(5); // 修改数组会触发 effect
       expect(effectSpy).toHaveBeenCalledTimes(2);
@@ -211,7 +225,7 @@ describe('Array methods effect tests', () => {
         const reversed = arr.toReversed();
         effectSpy(reversed[0]);
       });
-      
+
       expect(effectSpy).toHaveBeenCalledWith('test');
       arr.push('new'); // 修改数组会触发 effect
       expect(effectSpy).toHaveBeenCalledTimes(2);
@@ -222,7 +236,7 @@ describe('Array methods effect tests', () => {
         const spliced = arr.toSpliced(1, 1, 'replaced');
         effectSpy(spliced.length);
       });
-      
+
       expect(effectSpy).toHaveBeenCalledWith(4);
       arr[0] = 'changed'; // 修改原数组会触发 effect
       expect(effectSpy).toHaveBeenCalledTimes(2);
@@ -233,7 +247,7 @@ describe('Array methods effect tests', () => {
         const newArr = arr.with(1, 'newVal');
         effectSpy(newArr[1]);
       });
-      
+
       expect(effectSpy).toHaveBeenCalledWith('newVal');
       arr[1] = 'changed'; // 修改原数组会触发 effect
       expect(effectSpy).toHaveBeenCalledTimes(2);
@@ -244,7 +258,7 @@ describe('Array methods effect tests', () => {
         const concatenated = arr.concat([4, 5]);
         effectSpy(concatenated.length);
       });
-      
+
       expect(effectSpy).toHaveBeenCalledWith(6);
       arr.push(99); // 修改原数组会触发 effect
       expect(effectSpy).toHaveBeenCalledTimes(2);
@@ -257,7 +271,7 @@ describe('Array methods effect tests', () => {
         const result = arr.every((x: any) => typeof x === 'number');
         effectSpy(result);
       });
-      
+
       expect(effectSpy).toHaveBeenCalledWith(false); // 因为有 'test'
       arr[3] = 888; // 修改字符串为数字
       expect(effectSpy).toHaveBeenCalledTimes(2);
@@ -269,7 +283,7 @@ describe('Array methods effect tests', () => {
         const found = arr.find((x: any) => x === 2);
         effectSpy(found);
       });
-      
+
       expect(effectSpy).toHaveBeenCalledWith(2);
       arr[1] = 99; // 修改找到的元素
       expect(effectSpy).toHaveBeenCalledTimes(2);
@@ -282,7 +296,7 @@ describe('Array methods effect tests', () => {
         const found = duplicateArr.findLast((x: any) => x === 2);
         effectSpy(found);
       });
-      
+
       expect(effectSpy).toHaveBeenCalledWith(2);
       duplicateArr[2] = 99; // 修改找到的元素
       expect(effectSpy).toHaveBeenCalledTimes(2);
@@ -293,7 +307,7 @@ describe('Array methods effect tests', () => {
         const index = arr.findIndex((x: any) => x === 2);
         effectSpy(index);
       });
-      
+
       expect(effectSpy).toHaveBeenCalledWith(1);
       arr[1] = 99; // 修改找到的元素位置
       expect(effectSpy).toHaveBeenCalledTimes(2);
@@ -306,7 +320,7 @@ describe('Array methods effect tests', () => {
         const index = duplicateArr.findLastIndex((x: any) => x === 2);
         effectSpy(index);
       });
-      
+
       expect(effectSpy).toHaveBeenCalledWith(2);
       duplicateArr[2] = 777; // 修改最后一个匹配元素
       expect(effectSpy).toHaveBeenCalledTimes(2);
@@ -321,7 +335,7 @@ describe('Array methods effect tests', () => {
         });
         effectSpy(sum);
       });
-      
+
       expect(effectSpy).toHaveBeenCalledWith(6); // 1+2+3
       arr[0] = 10;
       expect(effectSpy).toHaveBeenCalledTimes(2);
@@ -333,7 +347,7 @@ describe('Array methods effect tests', () => {
         const mapped = arr.map((x: any) => x + '_mapped');
         effectSpy(mapped[0]);
       });
-      
+
       expect(effectSpy).toHaveBeenCalledWith('1_mapped');
       arr[0] = 'new_value';
       expect(effectSpy).toHaveBeenCalledTimes(2);
@@ -345,7 +359,7 @@ describe('Array methods effect tests', () => {
         const result = arr.some((x: any) => x === 'test');
         effectSpy(result);
       });
-      
+
       expect(effectSpy).toHaveBeenCalledWith(true);
       arr[3] = 'not_test'; // 修改匹配的元素
       expect(effectSpy).toHaveBeenCalledTimes(2);
@@ -354,11 +368,10 @@ describe('Array methods effect tests', () => {
 
     it('reduce should collect iterator and convert initial value', () => {
       effect(() => {
-        const result = arr.reduce((acc: number, curr: any) => 
-          typeof curr === 'number' ? acc + curr : acc, 0);
+        const result = arr.reduce((acc: number, curr: any) => (typeof curr === 'number' ? acc + curr : acc), 0);
         effectSpy(result);
       });
-      
+
       expect(effectSpy).toHaveBeenCalledWith(6); // 1+2+3
       arr[1] = 10;
       expect(effectSpy).toHaveBeenCalledTimes(2);
@@ -367,11 +380,10 @@ describe('Array methods effect tests', () => {
 
     it('reduceRight should collect iterator and convert initial value', () => {
       effect(() => {
-        const result = arr.reduceRight((acc: number, curr: any) => 
-          typeof curr === 'number' ? acc + curr : acc, 0);
+        const result = arr.reduceRight((acc: number, curr: any) => (typeof curr === 'number' ? acc + curr : acc), 0);
         effectSpy(result);
       });
-      
+
       expect(effectSpy).toHaveBeenCalledWith(6); // 3+2+1
       arr[1] = 10;
       expect(effectSpy).toHaveBeenCalledTimes(2);
@@ -384,7 +396,7 @@ describe('Array methods effect tests', () => {
       effect(() => {
         effectSpy(arr.join('-'));
       });
-      
+
       expect(effectSpy).toHaveBeenCalledWith('1-2-3-test');
       arr[0] = 'first';
       expect(effectSpy).toHaveBeenCalledTimes(2);
@@ -395,7 +407,7 @@ describe('Array methods effect tests', () => {
       effect(() => {
         effectSpy(arr.toString());
       });
-      
+
       expect(effectSpy).toHaveBeenCalledWith('1,2,3,test');
       arr[1] = 'second';
       expect(effectSpy).toHaveBeenCalledTimes(2);
@@ -406,7 +418,7 @@ describe('Array methods effect tests', () => {
       effect(() => {
         effectSpy(arr.toLocaleString());
       });
-      
+
       expect(effectSpy).toHaveBeenCalledWith('1,2,3,test');
       arr[2] = 'third';
       expect(effectSpy).toHaveBeenCalledTimes(2);

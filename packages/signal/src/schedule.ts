@@ -19,9 +19,9 @@ export abstract class Scheduler {
   endSet() {
     if(!this.firstEffectItem) return;
     const subQueue = this.effectQueue.subRef(this.firstEffectItem, this.lastEffectItem);
-    this.onOneSetEffectsAdded?.(subQueue, this.effectQueue)
     this.firstEffectItem = null;
     this.lastEffectItem = null;
+    this.onOneSetEffectsAdded?.(subQueue, this.effectQueue)
   }
 
   addEffect(effect: Signal) {
@@ -48,9 +48,9 @@ export abstract class Scheduler {
 class SyncScheduler extends Scheduler {
   onOneSetEffectsAdded(subQueue: Queue<Signal>, queue: Queue<Signal>): void {
     subQueue.forEach((effect, item) => {
+      queue.delete(item);
       // 循环依赖时会跳过已经在执行的 effect
       effect.runIfDirty();
-      queue.delete(item);
     });
   }
 }
@@ -60,9 +60,9 @@ class MicroScheduler extends Scheduler {
   onOneSetEffectsAdded(subQueue: Queue<Signal>, queue: Queue<Signal>): void {
     const task: Task = () => {
       subQueue.forEach((effect, item) => {
+        queue.delete(item);
         // 循环依赖时会跳过已经在执行的 effect
         effect.runIfDirty();
-        queue.delete(item);
       });
       return {
         finished: true,
@@ -79,9 +79,9 @@ class MacroScheduler extends Scheduler {
   onOneSetEffectsAdded(subQueue: Queue<Signal>, queue: Queue<Signal>): void {
     const task = () => {
       subQueue.forEach((effect, item) => {
+        queue.delete(item);
         // 循环依赖时会跳过已经在执行的 effect
         effect.runIfDirty();
-        queue.delete(item);
       });
     };
     task.time = Date.now();
@@ -94,9 +94,9 @@ class LayoutScheduler extends Scheduler {
   onOneSetEffectsAdded(subQueue: Queue<Signal>, queue: Queue<Signal>): void {
     const task = () => {
       subQueue.forEach((effect, item) => {
+        queue.delete(item);
         // 循环依赖时会跳过已经在执行的 effect
         effect.runIfDirty();
-        queue.delete(item);
       });
     };
     task.time = Date.now();
@@ -110,4 +110,6 @@ export const _scheduler: Record<string | symbol, Scheduler> = {
   [Scheduler.Macro]: new MacroScheduler(),
   [Scheduler.Layout]: new LayoutScheduler()
 };
+
+globalThis['sche'] = _scheduler[Scheduler.Sync];
 export const registerScheduler = (key: string | symbol, Ctor: new () => Scheduler) => (_scheduler[key] = new Ctor());

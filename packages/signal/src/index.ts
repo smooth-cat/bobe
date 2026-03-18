@@ -1,10 +1,11 @@
 import { G, State } from './global';
 import { Scheduler } from './schedule';
-import { dispose } from './scope';
+import { dispose, runWithPulling } from './scope';
 import { Signal } from './signal';
-import { Dispose, Getter, Mix, SignalType, ValueDiff } from './type';
+import { CreateScope, Dispose, Getter, Mix, SignalType, ValueDiff } from './type';
 import { deepSignal } from './deep-signal';
 
+export { Signal } from './signal';
 export { deepSignal, shareSignal } from './deep-signal';
 export { Scheduler, registerScheduler } from './schedule';
 export { TaskQueue } from './task';
@@ -111,14 +112,21 @@ export const effect = (
   return bound as Dispose;
 };
 
-export const scope = (customPull: () => void) => {
+export const scope: CreateScope = (...args) => {
+  const hasScope = args.length > 1;
   const s = Signal.create(null, {
-    customPull,
+    customPull: args[0],
     scheduler: Scheduler.Sync,
-    isScope: true
+    isScope: true,
+    scope: hasScope ? args[1] : G.PullingSignal
   });
-
-  s.v;
+  if (hasScope) {
+    runWithPulling(() => {
+      s.v;
+    }, args[1]);
+  } else {
+    s.v;
+  }
   s.state |= State.ScopeReady;
 
   const bound = dispose.bind(s);

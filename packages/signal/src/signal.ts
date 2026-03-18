@@ -47,6 +47,9 @@ const markDeep = (signal: Signal) => {
         updatedSchedulers.add(key);
       }
       level++;
+      if (isLeaf) {
+        return true;
+      }
     }
   });
   // batch 操作通过 endBatch 触发
@@ -67,7 +70,7 @@ const pullingPostprocess = (node: Signal) => {
     // 使用位掩码：s = (s & ~State.PullingUnknown) | State.Unknown
     s = (s & ~State.PullingUnknown) | State.Unknown;
   }
-  
+
   node.state = s;
 };
 
@@ -88,7 +91,7 @@ export class Signal<T = any> implements Vertex {
   pull: () => T = null;
 
   constructor(
-    private nextValue: T,
+    public nextValue: T,
     /** 为什么是 shallow，因为 pullDeep 会把
      * 上游节点 get 执行完成，让其可以直接拿到缓存值
      */
@@ -119,24 +122,11 @@ export class Signal<T = any> implements Vertex {
   pullRecurse(shouldLink = true) {
     G.PullingRecurseDeep++;
     const downstream = G.PullingSignal;
-    const isScope = this.state & State.IsScope;
-
-    if (
-      this !== downstream &&
-      // 1. 外部支持 link
-      shouldLink &&
-      // 2. 有下游
-      downstream &&
-      // 3. 下游是 watcher，不链接非 scope
-      ((downstream.state & State.LinkScopeOnly) === 0 || isScope)
-    ) {
-      Line.link(this, downstream);
-    }
+    this.linkWhenPull(downstream);
     try {
       if (this.version === G.version) {
         return this.value;
       }
-
       // 进 pullShallow 前重置 recEnd，让子 getter 重构订阅链表
       if (this.pull !== this.DEFAULT_PULL) this.recEnd = null;
       this.state |= State.Pulling;
@@ -144,7 +134,7 @@ export class Signal<T = any> implements Vertex {
       this.clean?.();
       this.clean = null;
       let v = this.pull();
-      if (isScope && typeof v === 'function') {
+      if (this.state & State.IsScope && typeof v === 'function') {
         const fn = v;
         this.clean = () => runWithPulling(fn as any, null);
         v = this.value;
@@ -167,6 +157,26 @@ export class Signal<T = any> implements Vertex {
       unlinkRecWithScope(toDel);
       G.PullingSignal = downstream;
       G.PullingRecurseDeep--;
+    }
+  }
+
+  linkWhenPull(downstream: Signal) {
+    const isScope = this.state & State.IsScope;
+    if (
+      this !== downstream &&
+      // 2. 有下游
+      downstream &&
+      // 3. 下游是 watcher 不是 watch，或 是watcher 但 当前是 scope
+      ((downstream.state & State.LinkScopeOnly) === 0 || isScope) &&
+      /**4. scope 只能被一个下游节点管理，就是初始化它的那个下游节点
+       * 发生在 outEffect(() => scope(() => innerEffect(), null))
+       * 虽然通过 scope 让 innerEffect 被管理，
+       * 如果 innerEffect 在 outEffect 中被再次触发，就导致其被 outEffect 管理，
+       * 若 outEffect 后续重新触发， 则导致 innerEffect 被销毁
+       */
+      (!isScope || !this.emitStart)
+    ) {
+      Line.link(this, downstream);
     }
   }
 
@@ -245,15 +255,7 @@ export class Signal<T = any> implements Vertex {
     }
     // 此处要建立执行 pullDeep 的 signal 和 downstream 的连接
     const downstream = G.PullingSignal;
-    if (
-      this !== downstream &&
-      // 2. 有下游
-      downstream &&
-      // 3. 下游是 watcher 不是 watch，或 是watcher 但 当前是 scope
-      ((downstream.state & State.LinkScopeOnly) === 0 || this.state & State.IsScope)
-    ) {
-      Line.link(this, downstream);
-    }
+    this.linkWhenPull(downstream);
     return this.value;
   }
 
