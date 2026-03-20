@@ -11,6 +11,9 @@ importers:
       '@babel/core':
         specifier: ^7.29.0
         version: 7.29.0
+      '@babel/plugin-transform-destructuring':
+        specifier: ^7.28.5
+        version: 7.28.5(@babel/core@7.29.0)
       '@babel/preset-env':
         specifier: ^7.29.0
         version: 7.29.0(@babel/core@7.29.0)

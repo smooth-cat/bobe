@@ -65,6 +65,10 @@ const markDeep = (root: Signal) => {
 
     while (true) {
       // 上浮：通过 walked 找到父节点
+
+      if (i === -1) {
+        break outer;
+      }
       const backLine = stack[i];
 
       const nextLine = backLine.nextEmitLine;
@@ -78,10 +82,9 @@ const markDeep = (root: Signal) => {
 
       // 回溯到父节点继续上浮循环
       node = parent;
-      if (i === 0) {
-        break outer;
-      } else {
-        parent = stack[--i].upstream;
+
+      if (--i !== -1) {
+        parent = stack[i].upstream;
       }
     }
   } while (true);
@@ -211,33 +214,46 @@ export class Signal<T = any> implements Vertex {
     const signal = this;
     // 优化执行
     if (signal.state & DirtyState) {
-      dfs(signal, {
-        isUp: true,
-        begin: ({ node }) => {
-          // console.log('begin', node.id);
-
-          /**
-           * 不需要检查
-           * 1. 正在查
-           * 2. 干净
-           * 3. 放弃 或者为 scope 节点
-           */
-          if (node.state & (State.Pulling | State.Dirty) || (node.state & DirtyState) === 0 || node.isDisabled()) {
-            return true;
-          }
+      let node: Signal = signal,
+        i = -1,
+        parent: Signal;
+      const stack: Line[] = [];
+      outer: do {
+        let noGoDeep = false;
+        // begin
+        /**
+         * 不需要检查
+         * 1. 正在查
+         * 2. 干净
+         * 3. 放弃 或者为 scope 节点
+         */
+        if (node.state & (State.Pulling | State.Dirty) || (node.state & DirtyState) === 0 || node.isDisabled()) {
+          noGoDeep = true;
+        } else {
           node.state |= State.Pulling;
-        },
-        complete: ({ node, notGoDeep: cleanOrDirty, walkedLine }) => {
+        }
+
+        const recStart = node.recStart;
+        if (recStart && !noGoDeep) {
+          // 下潜：记录来时的路
+          stack[++i] = recStart;
+          parent = node;
+          node = recStart.upstream as Signal;
+          continue;
+        }
+
+        while (true) {
+          // complete
           const isDirty = node.state & State.Dirty;
           // 1. 非 Dirty 的情况
-          let currentClean = cleanOrDirty && !isDirty;
+          let currentClean = noGoDeep && !isDirty;
           // 2. 已在处理 Dirty 节点 跳过
-          if (cleanOrDirty && node.state & State.Pulling) {
+          if (noGoDeep && node.state & State.Pulling) {
             currentClean = true;
           }
           let noGoSibling = false;
-          const last = walkedLine[walkedLine.length - 1];
-          const downstream = last?.downstream as Signal;
+          const downstream = parent;
+          const isEmitter = node.pull === node.DEFAULT_PULL;
           // 当前正在检查，生成检查屏障，同时避免重新标记 和
           if (currentClean) {
           }
@@ -245,12 +261,9 @@ export class Signal<T = any> implements Vertex {
           else if (isDirty) {
             // 优化：源节点变化，直接让下游节点重新计算
             // if (!node.recStart && node.value !== node.nextValue) {
-            if (node.pull === node.DEFAULT_PULL && node.value !== node.nextValue) {
+            if (isEmitter && node.value !== node.nextValue) {
               node.markDownStreamsDirty();
               node.state &= ~State.Dirty;
-              // 源接节点不需要做 PullingUnknown => Unknown 转换
-              node.state &= ~State.Pulling;
-              return;
             }
             // 预检数据
             else {
@@ -273,11 +286,98 @@ export class Signal<T = any> implements Vertex {
           else if (node.state & State.Unknown) {
             node.state &= ~State.Unknown;
           }
-          node.version = G.version;
+          if (!isEmitter) {
+            node.version = G.version;
+          }
           pullingPostprocess(node);
-          return noGoSibling;
+          noGoDeep = false;
+          if (i === -1) {
+            break outer;
+          }
+          const backLine = stack[i];
+          const nextLine = backLine.nextRecLine;
+          // 兄弟节点，父节点不变
+          if (!noGoSibling && nextLine) {
+            node = nextLine.upstream as Signal;
+            stack[i] = nextLine;
+            break;
+          } else {
+            // 回溯到父节点继续上浮循环
+            node = parent;
+            if (--i !== -1) {
+              parent = stack[i].downstream;
+            }
+          }
         }
-      });
+      } while (true);
+
+      // dfs(signal, {
+      //   isUp: true,
+      //   begin: ({ node }) => {
+      //     // console.log('begin', node.id);
+
+      //     /**
+      //      * 不需要检查
+      //      * 1. 正在查
+      //      * 2. 干净
+      //      * 3. 放弃 或者为 scope 节点
+      //      */
+      //     if (node.state & (State.Pulling | State.Dirty) || (node.state & DirtyState) === 0 || node.isDisabled()) {
+      //       return true;
+      //     }
+      //     node.state |= State.Pulling;
+      //   },
+      //   complete: ({ node, notGoDeep: cleanOrDirty, walkedLine }) => {
+      //     const isDirty = node.state & State.Dirty;
+      //     // 1. 非 Dirty 的情况
+      //     let currentClean = cleanOrDirty && !isDirty;
+      //     // 2. 已在处理 Dirty 节点 跳过
+      //     if (cleanOrDirty && node.state & State.Pulling) {
+      //       currentClean = true;
+      //     }
+      //     let noGoSibling = false;
+      //     const last = walkedLine[walkedLine.length - 1];
+      //     const downstream = last?.downstream as Signal;
+      //     // 当前正在检查，生成检查屏障，同时避免重新标记 和
+      //     if (currentClean) {
+      //     }
+      //     // 当前节点需要重新计算
+      //     else if (isDirty) {
+      //       // 优化：源节点变化，直接让下游节点重新计算
+      //       // if (!node.recStart && node.value !== node.nextValue) {
+      //       if (node.pull === node.DEFAULT_PULL && node.value !== node.nextValue) {
+      //         node.markDownStreamsDirty();
+      //         node.state &= ~State.Dirty;
+      //         // 源接节点不需要做 PullingUnknown => Unknown 转换
+      //         node.state &= ~State.Pulling;
+      //         return;
+      //       }
+      //       // 预检数据
+      //       else {
+      //         const prevPulling = G.PullingSignal;
+      //         G.PullingSignal = downstream;
+      //         const prevValue = node.value;
+      //         // 递归转用递归拉取，且不需要重建 link 因为dfs的前提就是上游节点依赖于 本节点
+      //         node.pullRecurse(false);
+      //         // dirty 传播， 由于本节点值已被计算出，因此消除 dirty
+      //         if (prevValue !== node.value) {
+      //           node.markDownStreamsDirty();
+      //         }
+      //         node.state &= ~State.Dirty;
+      //         G.PullingSignal = prevPulling;
+      //         // 立刻返回父节点重新计算
+      //         noGoSibling = true;
+      //       }
+      //     }
+      //     // 没被上游节点标记为 Dirty，说明是干净的
+      //     else if (node.state & State.Unknown) {
+      //       node.state &= ~State.Unknown;
+      //     }
+      //     node.version = G.version;
+      //     pullingPostprocess(node);
+      //     return noGoSibling;
+      //   }
+      // });
     }
     // 此处要建立执行 pullDeep 的 signal 和 downstream 的连接
     const downstream = G.PullingSignal;

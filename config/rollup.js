@@ -5,6 +5,7 @@ import nodeResolve from '@rollup/plugin-node-resolve';
 import commonjs from '@rollup/plugin-commonjs';
 import path from 'path';
 import alias from '@rollup/plugin-alias';
+import babel from '@rollup/plugin-babel';
 
 const bigCamel = name =>
   name
@@ -42,9 +43,16 @@ export function createConfig(pkg, dir) {
         nodeResolve(),
         commonjs(),
         esbuild({
-          target: 'es2015',
+          target: 'esnext',
           tsconfig: path.resolve(dir, 'tsconfig.json'),
           minify: process.env.NODE_ENV === 'production'
+        }),
+        babel({
+          babelHelpers: 'bundled',
+          babelrc: false, // 禁用外部文件，防止干扰
+          configFile: false, // 禁用外部文件
+          extensions: ['.js', '.jsx', '.es6', '.es', '.mjs', '.ts', '.tsx'],
+          plugins: ['@babel/plugin-transform-destructuring']
         })
       ],
       external

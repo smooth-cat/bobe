@@ -95,24 +95,23 @@ const dfsUp = (root: Signal) => {
     }
 
     while (true) {
-      // 上浮：通过 walked 找到父节点
+      let noGoSibling = false;
+      if (i === -1) {
+        break outer;
+      }
       const backLine = stack[i];
-
       const nextLine = backLine.nextRecLine;
-
       // 兄弟节点，父节点不变
-      if (nextLine) {
+      if (!noGoSibling && nextLine) {
         node = nextLine.upstream as Signal;
         stack[i] = nextLine;
         break;
-      }
-
-      // 回溯到父节点继续上浮循环
-      node = parent;
-      if (i === 0) {
-        break outer;
       } else {
-        parent = stack[--i].downstream;
+        // 回溯到父节点继续上浮循环
+        node = parent;
+        if (--i !== -1) {
+          parent = stack[i].downstream;
+        }
       }
     }
   } while (true);
@@ -144,24 +143,22 @@ const dfsDown = (root: Signal) => {
     }
 
     while (true) {
-      // 上浮：通过 walked 找到父节点
+      // complete
+      if (i === -1) {
+        break outer;
+      }
       const backLine = stack[i];
-
       const nextLine = backLine.nextEmitLine;
-
       // 兄弟节点，父节点不变
       if (nextLine) {
         node = nextLine.downstream as Signal;
         stack[i] = nextLine;
         break;
       }
-
       // 回溯到父节点继续上浮循环
       node = parent;
-      if (i === 0) {
-        break outer;
-      } else {
-        parent = stack[--i].upstream;
+      if (--i !== -1) {
+        parent = stack[i].upstream;
       }
     }
   } while (true);
