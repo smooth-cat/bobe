@@ -1,17 +1,18 @@
 import { Effect } from './effect';
-import { batchDeep, getPulling } from './global';
+import { getPulling } from './global';
 import { link } from './line';
-import { mark, flushEffect } from './operate';
+import { mark, flushEffect, batchDeep } from './operate';
 import { Scope } from './scope';
 import { State, Link, SignalNode } from './type';
 
 export class Signal<T = any> {
-  scope: Effect | Scope = null;
+  scope: Effect | Scope = getPulling() as any;
   emitHead: Link = null;
   emitTail: Link = null;
   state = State.Clean;
 
   constructor(public value: T) {}
+  // TODO: shouldLink 考虑 signal -> computed NeedComputed -> effect 时执行 get 不应该触发 shouldLink
   get(shouldLink = true) {
     if (shouldLink) {
       const down = getPulling();

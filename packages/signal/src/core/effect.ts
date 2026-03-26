@@ -1,4 +1,4 @@
-import { execIdInc, getPulling, setPulling } from './global';
+import { execId, execIdInc, getPulling, setExecId, setPulling } from './global';
 import { link } from './line';
 import { transferDirtyState, pullDeep, unlink } from './operate';
 import { Scope } from './scope';
@@ -12,29 +12,36 @@ export class Effect {
   recTail: Link = null;
 
   state = EffectState;
-  scope: Effect | Scope = null;
+  scope: Effect | Scope = getPulling() as any;
   outLink: OutLink = null;
   clean: () => void = null;
   constructor(public callback: () => any) {}
   get(shouldLink = true, notForceUpdate = true) {
-    const { scope } = this;
-    if (scope && scope.state & State.ScopeAbort) return;
+    if (this.state & State.ScopeAbort) return;
     const down = getPulling();
     if (this.recHead && notForceUpdate) {
       pullDeep(this);
     } else {
       this.state |= State.PullLock;
+
       setPulling(null);
       this.clean?.();
+      this.clean = null;
+
+      const nextId = execIdInc();
+      const prevId = execId();
+      setExecId(nextId);
+
       setPulling(this);
       this.recTail = null;
-      execIdInc();
-      this.clean = this.callback();
+      const res = this.callback();
+      typeof res === 'function' && (this.clean = res);
       this.state &= ~State.PullLock;
       setPulling(down);
+
+      setExecId(prevId);
       // Unknown 转换
       transferDirtyState(this, this.state);
-      // TODO: 清理依赖
       let line = this.recTail?.nextRecLine;
       while (line) {
         const nextLine = line.nextRecLine;
@@ -43,7 +50,7 @@ export class Effect {
       }
     }
     // effect 可以嵌套管理，但是链接只建立一次
-    if (!this.emitHead && shouldLink && down && (down.state & State.LinkScopeOnly) === 0) {
+    if (!this.emitHead && shouldLink && down) {
       link(this, down);
     }
   }

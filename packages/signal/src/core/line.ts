@@ -15,11 +15,17 @@ export function link(
     return;
   }
   const nextRec = recTail ? recTail.nextRecLine : recHead;
+  const eid = execId();
+  // 重复依赖 跳过
+  if (prevEmitLine && prevEmitLine.down === down && prevEmitLine.execId === eid) {
+    return;
+  }
+
   // 1. down 无 nextRec 尾插
   if (!nextRec) {
     // 是 1. 上游节点尾指针 2.下游节点的首尾指针
     const line: Link = {
-      execId: execId(),
+      execId: eid,
       up,
       down,
       prevEmitLine,
@@ -47,13 +53,14 @@ export function link(
 
   // 2. 如果下一个 rec 连接的就是 up，直接复用
   if (nextRec.up === up) {
+    nextRec.execId = eid;
     down.recTail = nextRec;
     return;
   }
 
   // 3. rec 指向不匹配, 在 tail 和 next 中间插入 line
   const line: Link = {
-    execId: execId(),
+    execId: eid,
     up,
     down,
     prevEmitLine,

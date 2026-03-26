@@ -24,7 +24,7 @@ export function mark(signal: Signal) {
     if (scope && scope.state & State.ScopeAbort) {
     } else {
       const notLocked = (state & State.PullLock) === 0;
-      down.state |= notLocked? State.NeedCompute :  State.PullingNeedCompute;
+      down.state |= notLocked ? State.NeedCompute : State.PullingNeedCompute;
       if (state & State.IsScope) {
         if (notLocked && state & State.IsEffect) {
           addEffect(down as Effect);
@@ -38,6 +38,7 @@ export function mark(signal: Signal) {
 }
 
 function markUnknownDeep(initialLine: Link) {
+  const noPulling = !getPulling();
   // 初始节点入栈
   const stack: Link[] = [initialLine];
   let len = 1;
@@ -56,7 +57,8 @@ function markUnknownDeep(initialLine: Link) {
       //   down === up.scope ||
       //   state & UnknownOrScopeExecuted
       // );
-      if (scope && scope.state & State.ScopeAbort) {
+      // 1. 禁用，2. 已标记
+      if ((scope && scope.state & State.ScopeAbort) || (noPulling && state & DirtyState)) {
       } else {
         const notLocked = (state & State.PullLock) === 0;
         down.state |= notLocked ? State.Unknown : State.PullingUnknown;
@@ -185,6 +187,19 @@ export function flushEffect() {
   produceI = -1;
 }
 
+let _batchDeep = 0;
+export const batchStart = () => _batchDeep++;
+export const batchEnd = () => {
+  _batchDeep--;
+  if (_batchDeep === 0) {
+    flushEffect();
+  }
+};
+/** effect、computed 回调执行的唯一 id
+ * 用于判断重复依赖属于同一 effect、effect、computed
+ */
+export const batchDeep = () => _batchDeep;
+
 export function unlink(line: OutLink, deep: boolean) {
   const { nextEmitLine, prevEmitLine, nextRecLine, prevRecLine, up, down, prevOutLink, nextOutLink } = line;
   const { scope } = down;
@@ -241,7 +256,7 @@ export function unlink(line: OutLink, deep: boolean) {
 }
 
 export function dispose(root: SideEffect) {
-  let toDel = root.recHead;
+  let { recHead: toDel, emitHead } = root;
   while (toDel) {
     const { up, nextRecLine } = toDel;
     // 上游非 scope 直接 unlink
@@ -270,7 +285,7 @@ export function dispose(root: SideEffect) {
         }
         noSkip = true;
         // 递归出口
-        if (node === root) {
+        if (node === up) {
           break outer;
         }
         if (top.nextRecLine) {
@@ -285,7 +300,12 @@ export function dispose(root: SideEffect) {
     toDel = nextRecLine;
   }
   releaseScope(root as Effect);
-  unlink(root.emitHead as OutLink, false);
+  if (emitHead) unlink(emitHead as OutLink, false);
+}
+
+export function clean(onClean: () => any) {
+  const current = getPulling() as Effect;
+  current.clean = onClean;
 }
 
 function releaseScope(scope: Effect) {

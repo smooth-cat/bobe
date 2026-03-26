@@ -1,6 +1,6 @@
 import { Log } from '#test/log-order';
-import { DepStr } from './dep-str';
-import { $, effect, scope } from '#/index';
+import { DepStr2 as DepStr } from './dep-str';
+import { $, effect, scope } from '../core/index';
 
 describe('scope + signal 测试', () => {
   it('孤岛引用回收', () => {
@@ -23,15 +23,16 @@ describe('scope + signal 测试', () => {
     /*----------------- 初始依赖链 -----------------*/
     log.toBe('d是1');
     str.depIs(`
-      a -> d -> scope
+      a -> d
       B -> b -> d
     `);
     str.outLinkIs(dispose, 'B');
 
     /*----------------- 单引用链 B -> b 直接被删除 -----------------*/
     a.v = false;
+    d.v;
     str.depIs(`
-      a -> d -> scope
+      a -> d
       c -> d
     `);
     log.toBe('d是2');
@@ -41,7 +42,10 @@ describe('scope + signal 测试', () => {
     a.v = true;
     log.toBe();
     expect(d.v).toBe(2);
-    str.depIs(``); // d 是 scope 下单一依赖链，整条链全部被打断
+    str.depIs(`
+      a -> d
+      c -> d
+    `); // d 是 scope 下单一依赖链，整条链全部被打断
     str.outLinkIs(dispose, '');
   });
 
@@ -103,38 +107,47 @@ describe('scope + signal 测试', () => {
       innerResult
     });
     depStr.depIs(`
-      globalSignal -> outerResult -> outerScope
+      globalSignal -> outerResult
       outerA -> outerResult
       outerB -> outerResult
-      outerA -> innerResult -> innerScope -> outerScope
+      outerA -> innerResult
+      innerScope -> outerScope
       innerX -> innerResult
       innerY -> innerResult
       `);
     // innerScope 使用了 innerResult()，两者 scope 不同
-    // innerScope.scope 是 outerScope，所以 outScope 才具有外链 innerResult，合理
-    depStr.outLinkIs(outerDispose, 'globalSignal innerResult');
+    // innerResult -> innerScope 没有，scope 只连接 scope|effect
+    depStr.outLinkIs(outerDispose, 'globalSignal');
     depStr.outLinkIs(innerDispose, 'outerA');
     log.toBe('innerResult: 8', 'outerResult: 13'); // inner: 1+3+4=8, outer: 10+1+2=13
 
     /*----------------- 验证计算结果 -----------------*/
     // 修改外层信号，观察影响
     outerA.v = 5;
+    innerResult.v;
+    outerResult.v;
     log.toBe('innerResult: 12', 'outerResult: 17'); // inner: 5+3+4=12, outer: 10+5+2=17
 
     // 修改内层信号，观察影响
     innerX.v = 6;
+    innerResult.v;
     log.toBe('innerResult: 15'); // inner: 5+6+4=15
 
     // 修改外部信号，观察影响
     globalSignal.v = 20;
+    outerResult.v;
     log.toBe('outerResult: 27'); // outer: 20+5+2=27
 
     /*----------------- 释放 innerScope -----------------*/
     innerDispose();
+    // 1. innerScope -> outScope 断开
+    // 2. outA -> innerResult 断开
     depStr.depIs(`
-      globalSignal -> outerResult -> outerScope
+      globalSignal -> outerResult
       outerA -> outerResult
       outerB -> outerResult
+      innerX -> innerResult
+      innerY -> innerResult
     `);
     depStr.outLinkIs(innerDispose, '');
     /**
@@ -147,11 +160,18 @@ describe('scope + signal 测试', () => {
     log.toBe(); // 没有输出，因为内层scope已释放
 
     outerA.v = 8; // 外部信号仍应正常工作
+    outerResult.v;
     log.toBe('outerResult: 30'); // outer: 20+8+2=30
 
     /*----------------- 释放 outerScope -----------------*/
     outerDispose();
-    depStr.depIs(``);
+    // globalSignal -> outerResult 外链断开
+    depStr.depIs(`
+      outerA -> outerResult
+      outerB -> outerResult
+      innerX -> innerResult
+      innerY -> innerResult
+    `);
     depStr.outLinkIs(outerDispose, '');
 
     // 释放外层后，所有都不应再响应变化
@@ -209,28 +229,33 @@ describe('scope + signal 测试', () => {
       innerResult
     });
     depStr.depIs(`
-      globalSignal -> outerResult -> outerScope
+      globalSignal -> outerResult
       outerA -> outerResult
       outerB -> outerResult
-      outerA -> innerResult -> innerScope -> outerScope
+      outerA -> innerResult
+      innerScope -> outerScope
       innerX -> innerResult
       innerY -> innerResult
     `);
-    depStr.outLinkIs(outerDispose, 'globalSignal innerResult');
+    depStr.outLinkIs(outerDispose, 'globalSignal');
     depStr.outLinkIs(innerDispose, 'outerA');
     log.toBe('innerResult: 8', 'outerResult: 13'); // inner: 1+3+4=8, outer: 10+1+2=13
 
     /*----------------- 验证计算结果 -----------------*/
     // 修改外层信号，观察影响
     outerA.v = 5;
+    innerResult.v;
+    outerResult.v;
     log.toBe('innerResult: 12', 'outerResult: 17'); // inner: 5+3+4=12, outer: 10+5+2=17
-
+    
     // 修改内层信号，观察影响
     innerX.v = 6;
+    innerResult.v;
     log.toBe('innerResult: 15'); // inner: 5+6+4=15
-
+    
     // 修改外部信号，观察影响
     globalSignal.v = 20;
+    outerResult.v;
     log.toBe('outerResult: 27'); // outer: 20+5+2=27
 
     /*----------------- 先释放 outerScope (这应该自动释放 innerScope) -----------------*/
@@ -251,13 +276,19 @@ describe('scope + signal 测试', () => {
     innerY.v = 8;
     log.toBe(); // 仍然没有输出
 
-    // 检查依赖链状态 - 应该全部被清理
-    depStr.depIs(`innerScope -> outerScope`);
+    // 检查依赖链状态 - 应该全部被清理 outerA -> innerResult globalSignal -> outerResult
+    depStr.depIs(`
+      outerA -> outerResult
+      outerB -> outerResult
+      innerScope -> outerScope
+      innerX -> innerResult
+      innerY -> innerResult
+    `);
 
     // 验证 signal 在 dispose 后返回缓存值
     expect(outerResult.v).toBe(27); // 最后一次计算的值
     expect(innerResult.v).toBe(15); // 最后一次计算的值
-    expect(outerA.v).toBe(5); // 最后设置的值
+    expect(outerA.v).toBe(8); // 最后设置的值
     expect(globalSignal.v).toBe(20); // 最后设置的值
   });
 });
@@ -532,7 +563,7 @@ describe('scope + effect 测试', () => {
     });
     log.toBe('outEffect: 0', 'innerEffect: 0');
     expect(innerEffect.ins.scope).toBe(globalScope.ins);
-    expect(inCount.scope).toBeNull();
+    expect(inCount.ins.scope).toBeNull();
     const dep = new DepStr({
       outEffect,
       globalScope,

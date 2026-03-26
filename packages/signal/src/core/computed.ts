@@ -1,4 +1,4 @@
-import { setPulling, getPulling, execIdInc } from './global';
+import { setPulling, getPulling, execIdInc, execId, setExecId } from './global';
 import { Effect } from './effect';
 import { Scope } from './scope';
 import { State, Link, DirtyState, OutLink } from './type';
@@ -11,7 +11,7 @@ export class Computed<T = any> {
   recHead: Link = null;
   recTail: Link = null;
   state = State.Clean;
-  scope: Effect | Scope = null;
+  scope: Effect | Scope = getPulling() as any;
   value: T = null;
   constructor(public callback: () => T) {}
   get(shouldLink = true, notForceUpdate = true) {
@@ -24,12 +24,18 @@ export class Computed<T = any> {
       }
     } else {
       this.state |= State.PullLock;
+      
+      const nextId = execIdInc();
+      const prevId = execId();
+      setExecId(nextId);
+
       setPulling(this);
       this.recTail = null;
-      execIdInc();
       this.value = this.callback();
       this.state &= ~State.PullLock;
       setPulling(down);
+      
+      setExecId(prevId);
       // Unknown 转换
       transferDirtyState(this, this.state);
       let line = this.recTail?.nextRecLine;

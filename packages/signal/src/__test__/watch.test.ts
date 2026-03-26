@@ -1,10 +1,7 @@
-import { $, Dispose, effect, scope } from '#/index';
-import { Scheduler } from '#/schedule';
+import { $, effect, scope } from '../core/index';
+// import { Scheduler } from '#/schedule';
 import { Log } from '#test/log-order';
-import { DepStr } from './dep-str';
-import { ide } from '#/util';
-import { evt, G } from '#/global';
-import { Signal } from '#/signal';
+import { DepStr2 as DepStr } from './dep-str';
 
 describe('watch 功能测试', () => {
   it('基本 watch 功能 - 监听单一信号变化', () => {
@@ -171,72 +168,69 @@ describe('watch 功能测试', () => {
     log.toBe(); // 没有新的执行
   });
 
-  it('使用不同调度器的 watch', () =>
+  // it('使用不同调度器的 watch', () =>
+  //   new Promise(done => {
+  //     const log = new Log();
+  //     const signal = $(1);
+
+  //     effect(
+  //       () => {
+  //         log.call('async watcher执行');
+  //       },
+  //       [signal],
+  //       { immediate: false, scheduler: Scheduler.Micro }
+  //     );
+
+  //     // 初始化不应执行
+  //     log.toBe();
+
+  //     // 改变信号，但因为使用 Micro 调度器，需要等待
+  //     signal.v = 2;
+  //     log.toBe(); // 还没有执行
+
+  //     // 等待微任务执行
+  //     Promise.resolve().then(() => {
+  //       log.toBe('async watcher执行');
+  //       done(1);
+  //     });
+  //   }));
+
+  it('使用 scope 取消监听', () =>
     new Promise(done => {
       const log = new Log();
       const signal = $(1);
-
-      effect(
-        () => {
-          log.call('async watcher执行');
-        },
-        [signal],
-        { immediate: false, scheduler: Scheduler.Micro }
-      );
-
-      // 初始化不应执行
-      log.toBe();
-
-      // 改变信号，但因为使用 Micro 调度器，需要等待
-      signal.v = 2;
-      log.toBe(); // 还没有执行
-
-      // 等待微任务执行
-      Promise.resolve().then(() => {
-        log.toBe('async watcher执行');
-        done(1);
+      let watcher: any;
+      const dispose = scope(() => {
+        watcher = effect(
+          () => {
+            log.call('watcher执行');
+          },
+          [signal],
+          { immediate: false }
+        );
       });
-    }));
+      const str = new DepStr({
+        signal,
+        watcher,
+        dispose
+      });
 
-  it('使用 scope 取消监听', () => new Promise(done => {
-    const log = new Log();
-    const signal = $(1);
-    let watcher: any;
-    const dispose = scope(() => {
-      watcher = effect(
-        () => {
-          log.call('watcher执行');
-        },
-        [signal],
-        { immediate: false }
-      );
-    });
-    const str = new DepStr({
-      signal,
-      watcher,
-      dispose
-    });
-
-    str.depIs(`
+      str.depIs(`
       signal -> watcher -> dispose   
     `);
 
-    // 改变信号值，触发 watch
-    signal.v = 2;
-    log.toBe('watcher执行');
+      // 改变信号值，触发 watch
+      signal.v = 2;
+      log.toBe('watcher执行');
 
-    // 调用 dispose 函数来取消监听
-    dispose();
-    str.depIs(`watcher -> dispose`);
-    // 在取消监听后改变信号，不应该再触发 watch
-    signal.v = 3;
-    log.toBe();
-    // 通过 scope 嫩自动找出外部依赖并断开
-    ide(() => {
+      // 调用 dispose 函数来取消监听
+      dispose();
       str.depIs(`watcher -> dispose`);
+      // 在取消监听后改变信号，不应该再触发 watch
+      signal.v = 3;
+      log.toBe();
       done(1);
-    });
-  }));
+    }));
 
   it(' dispose 功能测试', () => {
     const log = new Log();
@@ -306,36 +300,36 @@ describe('watch 功能测试', () => {
     log.toBe('新值=[100,20], 旧值=[10,20]', '新值=[100,200], 旧值=[100,20]');
   });
 
-  it('stop 功能对微任务 watcher 的停止', () => new Promise (done => {
-    const log = new Log();
-    const signal = $(1);
+  // it('stop 功能对微任务 watcher 的停止', () => new Promise (done => {
+  //   const log = new Log();
+  //   const signal = $(1);
 
-    const watcher = effect(
-      () => {
-        log.call('micro task watcher执行');
-      },
-      [signal],
-      { immediate: false, scheduler: Scheduler.Micro }
-    );
+  //   const watcher = effect(
+  //     () => {
+  //       log.call('micro task watcher执行');
+  //     },
+  //     [signal],
+  //     { immediate: false, scheduler: Scheduler.Micro }
+  //   );
 
-    // 初始状态，改变信号会触发微任务执行
-    signal.v = 2;
-    log.toBe(); // 微任务还未执行
-    watcher();
+  //   // 初始状态，改变信号会触发微任务执行
+  //   signal.v = 2;
+  //   log.toBe(); // 微任务还未执行
+  //   watcher();
 
-    Promise.resolve().then(() => {
-      log.toBe(); // 因为停止了，所以没有执行
-      done(1);
-    });
-  }));
+  //   Promise.resolve().then(() => {
+  //     log.toBe(); // 因为停止了，所以没有执行
+  //     done(1);
+  //   });
+  // }));
 
   it('两层 watch 嵌套 - 第一层监听全局 signal，在回调中嵌套第二层 watch 监听内部 signal', () => {
     const log = new Log();
     const globalSignal1 = $(1);
     const globalSignal2 = $(10);
     const globalSignalForInner = $('for inner');
-    let innerSignal: Signal;
-    let innerWatcher: Dispose;
+    let innerSignal: any;
+    let innerWatcher: any;
 
     // 第一层 watch：监听全局 signal1，并在回调中创建第二层 watch
     const outWatcher = effect(

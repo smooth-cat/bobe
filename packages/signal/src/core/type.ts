@@ -57,3 +57,8 @@ export const PullingOrScopeExecuted = State.ScopeReady | State.ScopeAbort | Stat
 export const ScopeAbort = State.ScopeAbort;
 
 export type SideEffect = Effect | Computed;
+
+export type ValueDiff = {
+  old: any;
+  val: any;
+};
