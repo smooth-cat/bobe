@@ -12,4 +12,12 @@ export const setExecId = (v: number) => (currentExecId = v);
 
 let pulling: SignalNode = null;
 export const setPulling = (v: SignalNode) => (pulling = v);
-export const getPulling = () => pulling;
+export const getPulling = () => pulling as any;
+
+export function runWithPulling<T extends (...args: any[]) => any>(fn: T, scope: any): ReturnType<T> {
+  const oldPulling = pulling;
+  pulling = scope;
+  const ret = fn();
+  pulling = oldPulling;
+  return ret;
+}

@@ -1,17 +1,10 @@
 import { Computed } from './computed';
 import { Effect } from './effect';
 import { Scope } from './scope';
-import type { State } from './macro';
+import { Signal } from './signal';
 
 
-export type SignalNode = {
-  emitHead?: Link;
-  emitTail?: Link;
-  recHead?: Link;
-  recTail?: Link;
-  state: State;
-  scope: Effect | Scope;
-};
+export type SignalNode = Partial<Signal & Effect & Scope & Computed>;
 export type Link = {
   execId: number;
   up: SignalNode;
@@ -30,8 +23,3 @@ export type OutLink = Link & {
 
 
 export type SideEffect = Effect | Computed;
-
-export type ValueDiff = {
-  old: any;
-  val: any;
-};

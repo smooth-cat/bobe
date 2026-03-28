@@ -1,12 +1,7 @@
 import { setPulling, getPulling } from './global';
 import { Effect } from './effect';
 import { Signal } from './signal';
-import {
-  Link,
-  SideEffect,
-  OutLink,
-  SignalNode
-} from './type';
+import { Link, SideEffect, OutLink, SignalNode } from './type';
 import { State, DirtyState, PullingOrScopeExecuted, ScopeAbort } from './macro' with { type: 'macro' };
 
 export function mark(signal: Signal) {
@@ -81,12 +76,16 @@ export function pullDeep(root: SideEffect): any {
   const lineStack: Link[] = [];
   do {
     const { state, scope } = node;
-    let noSkip = !(state & PullingOrScopeExecuted || (scope && scope.state & State.ScopeAbort));
+    let noSkipSelf = !(
+      state & PullingOrScopeExecuted ||
+      (state & DirtyState) === 0 ||
+      (scope && scope.state & State.ScopeAbort)
+    );
     // begin
     const firstLine = node.recHead;
     // 1. 本节点不跳过则可进入子节点,
     // 2. 本节点需要计算，不需要进入子节点
-    if (noSkip) {
+    if (noSkipSelf) {
       node.state |= State.PullLock;
       if ((state & State.NeedCompute) === 0 && firstLine) {
         node = firstLine.up as SideEffect;
@@ -98,7 +97,8 @@ export function pullDeep(root: SideEffect): any {
 
     do {
       const { state } = node;
-      if (noSkip) {
+      let noGoSibling = false;
+      if (noSkipSelf) {
         // 子节点计算完成后重新查看父节点的 NeedCompute
         if (state & State.NeedCompute) {
           // window['update'] = (window['update'] || 0) + 1;
@@ -109,7 +109,7 @@ export function pullDeep(root: SideEffect): any {
           const value = node.get(false, false);
           setPulling(prevPulling);
           // 将父标记为 NeedCompute
-          if (value !== prevValue) {
+          if ((noGoSibling = value !== prevValue)) {
             let line = node.emitHead;
             while (line) {
               const { down } = line;
@@ -126,21 +126,21 @@ export function pullDeep(root: SideEffect): any {
         node.state &= ~State.PullLock;
       }
       // complete
-
-      // 处理完一个节点，noSkip 要还原为 true
-      noSkip = true;
       // 递归出口
       if (node === root) {
         // @ts-ignore
         return node.value;
       }
-      if (top.nextRecLine) {
+      if (!noGoSibling && top.nextRecLine) {
         top = top.nextRecLine;
-      } else {
-        node = top.down as SideEffect;
-        top = lineStack[i];
-        lineStack[i--] = null;
+        node = top.up as SideEffect;
+        break;
       }
+      // 避免回溯时子节点 noSkipSelf 影响到父节点
+      noSkipSelf = true;
+      node = top.down as SideEffect;
+      top = lineStack[i];
+      lineStack[i--] = null;
     } while (true);
   } while (true);
 }
@@ -272,31 +272,32 @@ export function dispose(this: SideEffect) {
       i = -1;
     const lineStack: Link[] = [];
     outer: do {
-      let noSkip = node.state & State.IsScope && (node.state & ScopeAbort) === 0;
+      let noSkipSelf = node.state & State.IsScope && (node.state & ScopeAbort) === 0;
       const firstLine = node.recHead;
 
-      if (noSkip && firstLine) {
+      if (noSkipSelf && firstLine) {
         node = firstLine.up as SideEffect;
         lineStack[++i] = top;
         top = firstLine;
         continue;
       }
       do {
-        if (noSkip) {
+        if (noSkipSelf) {
           releaseScope(node as Effect);
         }
-        noSkip = true;
         // 递归出口
         if (node === up) {
           break outer;
         }
         if (top.nextRecLine) {
           top = top.nextRecLine;
-        } else {
-          node = top.down as SideEffect;
-          top = lineStack[i];
-          lineStack[i--] = null;
+          node = top.up as SideEffect;
+          break;
         }
+        noSkipSelf = true;
+        node = top.down as SideEffect;
+        top = lineStack[i];
+        lineStack[i--] = null;
       } while (true);
     } while (true);
     toDel = nextRecLine;
