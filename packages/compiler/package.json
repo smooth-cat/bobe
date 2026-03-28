@@ -1,6 +1,6 @@
 {
   "name": "bobe",
-  "version": "0.0.23",
+  "version": "0.0.24",
   "main": "dist/bobe.cjs.js",
   "module": "dist/bobe.esm.js",
   "browser": "dist/bobe.umd.js",
