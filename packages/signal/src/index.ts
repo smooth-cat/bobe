@@ -44,7 +44,7 @@ const DefaultCustomEffectOpt = {
 
 export type CustomEffectOpt = Partial<typeof DefaultCustomEffectOpt>;
 
-export function effect(
+export function effectUt(
   callback: (...args: ValueDiff[]) => void,
   depOrOpt?: any[] | CustomEffectOpt,
   opt?: CustomEffectOpt
@@ -75,6 +75,45 @@ export function effect(
       ef.state |= State.LinkScopeOnly;
       callback(...vs);
       ef.state &= ~State.LinkScopeOnly;
+    }
+    mounted = true;
+  });
+  const run = ef.dispose.bind(ef);
+  run.ins = ef;
+  return run;
+}
+
+export function effect(
+  callback: (...args: ValueDiff[]) => void,
+  depOrOpt?: any[] | CustomEffectOpt,
+  opt?: CustomEffectOpt
+) {
+  /*----------------- 自动收集 -----------------*/
+  const hasDep = Array.isArray(depOrOpt);
+  opt = hasDep ? opt || {} : depOrOpt || {};
+  if (!hasDep) {
+    const ef = new Effect(callback);
+    const run = ef.dispose.bind(ef);
+    run.ins = ef;
+    return run;
+  }
+  /*----------------- 指定依赖， watcher -----------------*/
+  let mounted = false;
+  const deps = depOrOpt as any[];
+  const immediate = deps.length === 0 ? true : (opt.immediate ?? true);
+  const vs: ValueDiff[] = Array.from({ length: deps.length }, () => ({ old: null, val: null }));
+
+  const ef = new Effect((eff) => {
+    for (let i = 0; i < deps.length; i++) {
+      const value = deps[i].get();
+      vs[i].old = vs[i].val;
+      vs[i].val = value;
+    }
+
+    if (mounted || immediate) {
+      eff.state |= State.LinkScopeOnly;
+      callback(...vs);
+      eff.state &= ~State.LinkScopeOnly;
     }
     mounted = true;
   });

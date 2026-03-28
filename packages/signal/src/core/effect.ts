@@ -2,7 +2,7 @@ import { execId, execIdInc, getPulling, setExecId, setPulling } from './global';
 import { link } from './line';
 import { transferDirtyState, pullDeep, unlink, dispose } from './operate';
 import { Scope } from './scope';
-import { Link, OutLink } from './type';
+import { Link, OutLink, SignalNode } from './type';
 import { State } from './macro' with { type: 'macro' };
 
 const EffectState = State.IsEffect | State.IsScope;
@@ -16,7 +16,7 @@ export class Effect {
   scope: Effect | Scope = getPulling() as any;
   outLink: OutLink = null;
   clean: () => void = null;
-  constructor(public callback: () => any) {
+  constructor(public callback: (thisArg: SignalNode) => any) {
     this.get();
   }
   get(shouldLink = true, notForceUpdate = true) {
@@ -37,7 +37,7 @@ export class Effect {
 
       setPulling(this);
       this.recTail = null;
-      const res = this.callback();
+      const res = this.callback(this);
       typeof res === 'function' && (this.clean = res);
       this.state &= ~State.PullLock;
       setPulling(down);

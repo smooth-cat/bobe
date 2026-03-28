@@ -1,4 +1,4 @@
-import { $, effect, scope } from '#/index';
+import { $, effectUt as effect, scope } from '#/index';
 
 describe('deep-signal basic functionality', () => {
   it('should create a reactive object with nested properties', () => {

@@ -1,4 +1,4 @@
-import { effect, IsStore, Store, StoreIgnoreKeys } from '#/index'; // 假设使用了类似 aoye 的响应式库
+import { effectUt as effect, IsStore, Store, StoreIgnoreKeys } from '#/index'; // 假设使用了类似 aoye 的响应式库
 describe('Store 测试', () => {
   let fn;
   beforeEach(() => {

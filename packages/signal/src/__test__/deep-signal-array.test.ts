@@ -1,4 +1,4 @@
-import { $, effect, Keys } from '#/index';
+import { $, effectUt as effect, Keys } from '#/index';
 import { Log } from '#test/log-order';
 import { Mock } from 'vitest';
 
