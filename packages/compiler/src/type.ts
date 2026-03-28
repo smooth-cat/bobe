@@ -1,4 +1,4 @@
-import { Dispose, Signal, Store } from 'aoye';
+import { Dispose, Effect, Scope, Signal, SignalNode, Store } from 'aoye';
 import type { Tokenizer } from './tokenizer';
 import type { Interpreter } from './terp';
 import { MultiTypeStack } from './typed';
@@ -127,7 +127,7 @@ export type ForNode = LogicNode & {
   indexName?: string;
   getKey?: (data: any) => any;
   arr: any[];
-  effect: Dispose;
+  effect: Effect;
   i: number;
   owner: ComponentNode | FragmentNode;
   prevSibling: any;
@@ -137,15 +137,15 @@ export type ForItemNode = LogicNode & {
   id: number;
   forNode: ForNode;
   data: any;
-  effect: Dispose;
+  effect: Scope;
   key?: any;
 };
 
 export type IfNode = LogicNode & {
-  condition: Signal;
+  condition: SignalNode;
   isFirstRender: boolean;
   snapshot: ReturnType<Tokenizer['snapshot']>;
-  effect: Dispose;
+  effect: Effect;
   preCond: IfNode | null;
   owner: ComponentNode | FragmentNode;
 };

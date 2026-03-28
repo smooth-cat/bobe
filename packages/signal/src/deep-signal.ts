@@ -200,7 +200,7 @@ function handleArraySet(arr: object, prop: string | symbol, value: any, receiver
 
 function triggerIter(obj: object, prop: string | symbol, value: any, receiver: any) {
   if (!Reflect.has(obj, prop)) {
-    receiver[Keys.Iterator] = receiver[Keys.Raw][Keys.Iterator] + 1;
+    receiver[Keys.Iterator] = (receiver[Keys.Raw][Keys.Iterator] || 0) + 1;
   }
 }
 

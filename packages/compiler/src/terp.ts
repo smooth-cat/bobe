@@ -1,15 +1,17 @@
 import { Tokenizer } from './tokenizer';
 import {
-  $,
+  Computed,
   deepSignal,
+  Effect,
   effect,
   getPulling,
   Keys,
   runWithPulling,
-  scope,
+  Scope,
   setPulling,
   shareSignal,
   Signal,
+  SignalNode,
   Store,
   toRaw
 } from 'aoye';
@@ -17,9 +19,7 @@ import {
   BobeUI,
   ComponentNode,
   CondBit,
-  FragmentNode,
   IfNode,
-  IsAnchor,
   LogicalBit,
   LogicNode,
   FakeType,
@@ -27,16 +27,14 @@ import {
   ProgramCtx,
   StackItem,
   TerpConf,
-  TerpEvt,
   TokenType,
   TokenizerSwitcherBit,
   ForNode,
   ForItemNode,
   Token
 } from './type';
-import { BaseEvent, jsVarRegexp } from 'bobe-shared';
+import { jsVarRegexp } from 'bobe-shared';
 import { MultiTypeStack } from './typed';
-const tap = new BaseEvent();
 
 export class Interpreter {
   opt: TerpConf;
@@ -104,7 +102,7 @@ export class Interpreter {
           // 父节点是逻辑节点
           if (isLogicNode) {
             // 保证 if 子逻辑节点能被其 effect 管理
-            setPulling(ctx.current.effect.ins);
+            setPulling(ctx.current.effect);
           }
         }
         // 父节点是原生节点时才修改 ctx.prevSibling
@@ -141,7 +139,7 @@ export class Interpreter {
             // 找最近的 if for
             const parentLogic = stack.peekByType(NodeSort.Logic)?.node;
             if (parentLogic) {
-              setPulling(parentLogic.effect.ins);
+              setPulling(parentLogic.effect);
             } else {
               setPulling(rootPulling);
             }
@@ -357,7 +355,7 @@ export class Interpreter {
       ? // 有 key 直接拿
         (data[arrExp], cells.get(arrExp))
       : // 无key
-        $(this.getFn(data, arrExp));
+        new Computed(this.getFn(data, arrExp));
 
     // 由于此处 snapshot 多配置了2个属性，更新渲染时 应该忽略这个两个属性
     forNode.realAfter = this.insertAfterAnchor('for-after');
@@ -368,8 +366,8 @@ export class Interpreter {
     // TODO: 更新逻辑
     let isFirstRender = true;
     // TODO: effect 重新执行时，内部的 effect 自动销毁，包括 dom setProps 无法生效了
-    forNode.effect = effect(() => {
-      let arr: any[] = (forNode.arr = arrSignal.v);
+    forNode.effect = new Effect(() => {
+      let arr: any[] = (forNode.arr = arrSignal.get());
       // 订阅 iter
       arr[Keys.Iterator];
       // 使用原始数组避免 index 依赖
@@ -415,7 +413,7 @@ export class Interpreter {
               this.removeLogicNode(child);
               this.remove(child.realAfter);
               // 释放删除项 effect
-              child.effect();
+              child.effect.dispose();
             }
           }
           // 新增
@@ -441,7 +439,7 @@ export class Interpreter {
               this.tokenizer.useDedentAsEof = false;
               runWithPulling(() => {
                 this.program(forNode.realParent, forNode.owner, lastAfter, item);
-              }, item.effect.ins);
+              }, item.effect);
             }
             const firstInsert = newChildren[oldLen];
             if (firstInsert) {
@@ -488,13 +486,18 @@ export class Interpreter {
      * 1. runWithPulling 避免 scope 被 effect 收集
      * 2. scope 保证 signal 被 scope 管理
      */
-    const effect = scope(() => {}, null);
+    // TODO: scope 目前认为 parentScope 就是 其下游节点，恢复 pulling 会出现问题
+    const scope = new Scope(() => {});
+    scope.scope = null;
+    runWithPulling(() => {
+      scope.get();
+    }, null);
 
     // 考虑到生成每项数据需要依赖原始数组，因此无法放在 scope 里
     const { arr, itemExp, indexName, getKey } = forNode;
     let data: Record<any, any>;
     if (typeof itemExp === 'string') {
-      data = $<Record<any, any>>(
+      data = deepSignal(
         indexName
           ? {
               [itemExp]: arr[i],
@@ -502,14 +505,15 @@ export class Interpreter {
             }
           : {
               [itemExp]: arr[i]
-            }
+            },
+        getPulling()
       );
     } else {
       const rawData = itemExp(arr[i]);
       if (indexName) {
         rawData[indexName] = i;
       }
-      data = $<Record<any, any>>(rawData);
+      data = deepSignal(rawData, getPulling());
     }
 
     Object.setPrototypeOf(data, parentData);
@@ -525,7 +529,7 @@ export class Interpreter {
       effect: null,
       data
     };
-    forItemNode.effect = effect;
+    forItemNode.effect = scope;
     return forItemNode;
   }
 
@@ -554,12 +558,12 @@ export class Interpreter {
     if (isFn) {
       this.setProp(node, key, value, hookI);
     } else if (typeof value === 'function') {
-      effect(() => {
+      new Effect(() => {
         const res = value();
         this.setProp(node, key, res, hookI);
       });
     } else if (valueIsMapKey) {
-      effect(() => {
+      new Effect(() => {
         const res = data[value];
         this.setProp(node, key, res, hookI);
       });
@@ -610,13 +614,13 @@ export class Interpreter {
         const meta = child[Keys.Meta];
         const cells: Map<string, Signal> = meta.cells;
         if (typeof value === 'function') {
-          const computed = $(value);
-          cells.set(key, computed);
+          const computed = new Computed(value);
+          cells.set(key, computed as any);
           child[Keys.Raw][key] = undefined;
         }
         // 静态数据
         else {
-          cells.set(key, { v: value } as Signal);
+          cells.set(key, { get: () => value } as Signal);
           child[Keys.Raw][key] = value;
         }
       }
@@ -654,7 +658,7 @@ export class Interpreter {
       effect: null,
       owner
     };
-    let signal: Signal;
+    let signal: SignalNode;
 
     switch (keyWord.value) {
       case 'if':
@@ -667,16 +671,16 @@ export class Interpreter {
         } else {
           const fn = this.getFn(data, value);
           // 是 getter 使用 computed 计算出一个 signal
-          signal = $(fn);
+          signal = new Computed(fn);
         }
         break;
       case 'else':
         // 纯 else
         if (noCond) {
-          signal = $(() => {
+          signal = new Computed(() => {
             let point = ifNode.preCond;
             while (point) {
-              if (point.condition.v) {
+              if (point.condition.get()) {
                 return false;
               }
               // else 的条件判断应该停止在第一个访问到的 if 节点
@@ -691,10 +695,10 @@ export class Interpreter {
         // else if xxx
         else {
           const fn = valueIsMapKey ? null : this.getFn(data, value);
-          signal = $(() => {
+          signal = new Computed(() => {
             let point = ifNode.preCond;
             while (point) {
-              if (point.condition.v) {
+              if (point.condition.get()) {
                 return false;
               }
               // else 的条件判断应该停止在第一个访问到的 if 节点
@@ -708,10 +712,10 @@ export class Interpreter {
         }
         break;
       case 'fail':
-        signal = $(() => {
+        signal = new Computed(() => {
           let point = ifNode.preCond;
           while (point) {
-            if (point.condition.v) {
+            if (point.condition.get()) {
               return false;
             }
             point = point.preCond;
@@ -727,7 +731,7 @@ export class Interpreter {
     // 不论是否执行 if 都应该插入 anchor 节点用于后续
     ifNode.realAfter = this.insertAfterAnchor(`${keyWord.value}-after`);
 
-    ifNode.effect = effect(
+    const ef = effect(
       ({ val }) => {
         // 如果值是 true 则直接放行让下面的节点自然执行插入
         if (val) {
@@ -768,6 +772,7 @@ export class Interpreter {
       },
       [signal]
     );
+    ifNode.effect = ef.ins;
     return ifNode;
   }
 
