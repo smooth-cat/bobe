@@ -49,6 +49,7 @@ export function createConfig(pkg, dir) {
           babelHelpers: 'bundled',
           babelrc: false, // 禁用外部文件，防止干扰
           configFile: false, // 禁用外部文件
+          shouldPrintComment: () => false,
           extensions: ['.js', '.jsx', '.es6', '.es', '.mjs', '.ts', '.tsx'],
           presets: [
             ['@babel/preset-env', { targets: 'node 20' }],

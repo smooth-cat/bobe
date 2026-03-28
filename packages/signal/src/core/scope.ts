@@ -1,8 +1,9 @@
 import { Effect } from './effect';
-import { execIdInc, getPulling, setPulling } from './global';
+import { getPulling, setPulling } from './global';
 import { link } from './line';
 import { Link, OutLink } from './type';
 import { State } from './macro' with { type: 'macro' };
+import { dispose } from './operate';
 const ScopeAndLinkScopeOnly = State.IsScope | State.LinkScopeOnly;
 export class Scope {
   emitHead: Link = null;
@@ -31,3 +32,8 @@ export class Scope {
     }
   }
 }
+export interface Scope {
+  dispose(): void;
+}
+
+Scope.prototype.dispose = dispose

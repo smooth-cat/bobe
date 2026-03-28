@@ -43,8 +43,7 @@ export function effect(
   opt = hasDep ? opt || {} : depOrOpt || {};
   if (!hasDep) {
     const ef = new Effect(callback);
-    ef.get();
-    const run = dispose.bind(undefined, ef);
+    const run = dispose.bind(ef);
     run.ins = ef;
     return run;
   }
@@ -68,9 +67,7 @@ export function effect(
     }
     mounted = true;
   });
-
-  ef.get();
-  const run = dispose.bind(undefined, ef);
+  const run = dispose.bind(ef);
   run.ins = ef;
   return run;
 }
@@ -80,7 +77,7 @@ export function scope(...args) {
     scopeIns.scope = args[1];
   }
   scopeIns.get();
-  const run = dispose.bind(undefined, scopeIns);
+  const run = dispose.bind(scopeIns);
   run.ins = scopeIns;
   return run;
 }

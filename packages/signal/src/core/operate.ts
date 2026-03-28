@@ -240,7 +240,9 @@ export function unlink(line: OutLink, deep: boolean) {
     scope.outLink = nextOutLink;
   }
   if (up.state & State.IsScope) {
-    dispose(up as Effect);
+    // @ts-ignore
+    up.dispose();
+    // dispose(up as Effect);
   }
   // 唯一 emitLine, 现在 up 是游离节点，递归删除 up 的上游依赖
   else if (deep && !prevEmitLine && !nextEmitLine) {
@@ -254,9 +256,9 @@ export function unlink(line: OutLink, deep: boolean) {
   }
 }
 
-export function dispose(root: SideEffect) {
+export function dispose(this: SideEffect) {
   // window['dispose'] = (window['dispose'] || 0) + 1;
-  let { recHead: toDel, emitHead } = root;
+  let { recHead: toDel, emitHead } = this;
   while (toDel) {
     const { up, nextRecLine } = toDel;
     // 上游非 scope 直接 unlink
@@ -299,7 +301,7 @@ export function dispose(root: SideEffect) {
     } while (true);
     toDel = nextRecLine;
   }
-  releaseScope(root as Effect);
+  releaseScope(this as Effect);
   if (emitHead) unlink(emitHead as OutLink, false);
 }
 

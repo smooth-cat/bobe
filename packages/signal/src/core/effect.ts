@@ -1,6 +1,6 @@
 import { execId, execIdInc, getPulling, setExecId, setPulling } from './global';
 import { link } from './line';
-import { transferDirtyState, pullDeep, unlink } from './operate';
+import { transferDirtyState, pullDeep, unlink, dispose } from './operate';
 import { Scope } from './scope';
 import { Link, OutLink } from './type';
 import { State } from './macro' with { type: 'macro' };
@@ -16,7 +16,9 @@ export class Effect {
   scope: Effect | Scope = getPulling() as any;
   outLink: OutLink = null;
   clean: () => void = null;
-  constructor(public callback: () => any) {}
+  constructor(public callback: () => any) {
+    this.get();
+  }
   get(shouldLink = true, notForceUpdate = true) {
     if (this.state & State.ScopeAbort) return;
     const down = getPulling();
@@ -56,3 +58,9 @@ export class Effect {
     }
   }
 }
+
+export interface Effect {
+  dispose(): void;
+}
+
+Effect.prototype.dispose = dispose
