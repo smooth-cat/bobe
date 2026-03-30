@@ -66,6 +66,7 @@ export const deepSignal = <T>(target: T, scope: Scope, deep = true) => {
 
       const wrappedValue = deep ? deepSignal(value, scope) : value;
       s = new Signal(wrappedValue);
+      s.scope = scope;
       cells.set(prop, s);
       return s.get();
     },
