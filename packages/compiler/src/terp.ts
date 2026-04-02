@@ -13,6 +13,7 @@ import {
   Signal,
   SignalNode,
   Store,
+  clean,
   toRaw
 } from 'aoye';
 import {
@@ -35,6 +36,7 @@ import {
 } from './type';
 import { jsVarRegexp } from 'bobe-shared';
 import { MultiTypeStack } from './typed';
+import { macInc } from './util';
 
 export class Interpreter {
   opt: TerpConf;
@@ -103,6 +105,9 @@ export class Interpreter {
           if (isLogicNode) {
             // 保证 if 子逻辑节点能被其 effect 管理
             setPulling(ctx.current.effect);
+            if(ctx.current.__logicType & FakeType.ForItem) {
+              ctx.prevSibling = ctx.current.realBefore;
+            }
           }
         }
         // 父节点是原生节点时才修改 ctx.prevSibling
@@ -159,8 +164,8 @@ export class Interpreter {
               this.tokenizer.resume(snapshot);
               this.tokenizer.nextToken(); // token = \n
               this.tokenizer.nextToken(); // token = Indent
-              ctx.prevSibling = parent;
               ctx.current = forNode.children[++forNode.i];
+              ctx.prevSibling = ctx.current.realBefore;
               continue;
             }
             // 正常弹出 current = for node
@@ -307,23 +312,31 @@ export class Interpreter {
     this.tokenizer.nextToken(); // 分号
     const itemToken = this.tokenizer.nextToken(); // item 表达式
     const isDestruct = itemToken.type === TokenType.InsertionExp;
-    let itemExp: string | ((value: any) => any) = itemToken.value as string;
+    let itemExp: string | ((value: any) => any) = itemToken.value as string,
+      vars: string[];
     if (isDestruct) {
       itemExp = '{' + itemExp + '}';
-      const vars = itemExp.match(jsVarRegexp).join(',');
-      itemExp = new Function('item', `let ${vars}; (${itemExp}=item); return {${vars}};`) as any;
+      vars = itemExp.match(jsVarRegexp);
+      const varStr = vars.join(',');
+      itemExp = new Function(itemExp, `return {${varStr}};`) as any;
     }
-    let indexName: string, keyExp: string;
-    while (this.tokenizer.code[this.tokenizer.i] !== '\n') {
-      const next = this.tokenizer.nextToken();
-      if (next.type !== TokenType.Semicolon) {
-        if (!indexName) {
-          indexName = next.value as string;
-        } else {
-          keyExp = next.value as string;
-        }
+    let indexName: string,
+      keyExp: string,
+      char = this.tokenizer.peekChar();
+    if (char === ';') {
+      this.tokenizer.nextToken(); // 分号
+      if (this.tokenizer.peekChar() !== '\n') keyExp = this.tokenizer.jsExp().value as string;
+    } else if (char === '\n') {
+    }
+    // 下一个是 indexName
+    else {
+      indexName = this.tokenizer.nextToken().value as string;
+      if (this.tokenizer.peekChar() === ';') {
+        this.tokenizer.nextToken(); // 分号
+        if (this.tokenizer.peekChar() !== '\n') keyExp = this.tokenizer.jsExp().value as string;
       }
     }
+
     const owner = this.ctx.stack.peekByType(NodeSort.TokenizerSwitcher)?.node;
     const prevSibling = this.ctx.prevSibling;
     const forNode: ForNode = {
@@ -334,12 +347,14 @@ export class Interpreter {
       realBefore: prevSibling?.realAfter || prevSibling,
       realAfter: null,
       arr: null,
+      arrSignal: null,
       itemExp,
       indexName,
       getKey: null,
       children: [],
       effect: null,
       owner,
+      vars,
       i: 0
     };
     if (keyExp) {
@@ -356,41 +371,36 @@ export class Interpreter {
         (data[arrExp], cells.get(arrExp))
       : // 无key
         new Computed(this.getFn(data, arrExp));
-
+    forNode.arrSignal = arrSignal;
     // 由于此处 snapshot 多配置了2个属性，更新渲染时 应该忽略这个两个属性
     forNode.realAfter = this.insertAfterAnchor('for-after');
 
     // 去除 dentStack 和 isFirstToken
     const { dentStack, isFirstToken, ...snapshotForUpdate } = forNode.snapshot;
 
-    // TODO: 更新逻辑
     let isFirstRender = true;
-    // TODO: effect 重新执行时，内部的 effect 自动销毁，包括 dom setProps 无法生效了
     forNode.effect = new Effect(() => {
-      let arr: any[] = (forNode.arr = arrSignal.get());
+      let arr: any[] = arrSignal.get();
       // 订阅 iter
       arr[Keys.Iterator];
+      const prevCtx = getPulling();
+      setPulling(null);
       // 使用原始数组避免 index 依赖
-      arr = toRaw(arr);
+      forNode.arr = arr = toRaw(arr);
       const children = forNode.children;
       // 首屏渲染
       if (isFirstRender) {
         const len = arr.length;
         for (let i = len; i--; ) {
-          const nextItem = children[i + 1];
           const item = this.createForItem(forNode, i, data);
-          const anchor = this.insertAfterAnchor('for-item-after');
-          item.realAfter = anchor;
-          if (nextItem) {
-            nextItem.realBefore = anchor;
-          }
+          item.realAfter = this.insertAfterAnchor('for-item-after');
+          item.realBefore = this.insertAfterAnchor('for-item-before');
           item.realParent = forNode.realParent;
           children[i] = item;
         }
         const firstInsert = children[0];
         // 有子项进行计算
         if (firstInsert) {
-          firstInsert.realBefore = forNode.realBefore;
           this.tokenizer.nextToken(); // 是 NewLine
           this.tokenizer.nextToken(); // 是 Indent
         }
@@ -409,63 +419,235 @@ export class Interpreter {
           // 删除
           if (newLen < oldLen) {
             for (let i = oldLen - 1; i >= newLen; i--) {
-              const child = children[i];
-              this.removeLogicNode(child);
-              this.remove(child.realAfter);
-              // 释放删除项 effect
-              child.effect.dispose();
+              this.removeForItem(children, i);
             }
           }
           // 新增
           if (oldLen < newLen) {
             const lastAfter = children.at(-1)?.realAfter || forNode.realBefore;
             for (let i = newLen - 1; i >= oldLen; i--) {
-              const item = this.createForItem(forNode, i, data);
-              newChildren[i] = item;
-              const nextItem = newChildren[i + 1];
-              const anchor = this.createAnchor('for-item-after');
-              this.insertAfter(forNode.realParent, anchor, lastAfter);
-              item.realAfter = anchor;
-              if (nextItem) {
-                nextItem.realBefore = anchor;
-              }
-              item.realParent = forNode.realParent;
-              this.tokenizer = owner.tokenizer;
-              /**
-               * resume 后 token = null, 下个字符是 \n
-               */
-              this.tokenizer.resume(snapshotForUpdate);
-              // 解析到缩进小于 base 时自动 eof
-              this.tokenizer.useDedentAsEof = false;
-              runWithPulling(() => {
-                this.program(forNode.realParent, forNode.owner, lastAfter, item);
-              }, item.effect);
-            }
-            const firstInsert = newChildren[oldLen];
-            if (firstInsert) {
-              firstInsert.realBefore = lastAfter;
+              this.insertForItem(forNode, i, data, newChildren, lastAfter, snapshotForUpdate);
             }
           }
           for (let i = minLen; i--; ) {
             const child = children[i];
             newChildren[i] = child;
-            if (typeof itemExp === 'string') {
-              child.data[itemExp] = arr[i];
+            this.reuseForItem(child, arr[i], itemExp, i, indexName);
+          }
+        }
+        // 带 key 列表
+        else {
+          let s = 0,
+            e1 = oldLen - 1,
+            e2 = newLen - 1;
+          // 掐头
+          while (s <= e1 && s <= e2) {
+            const child = children[s];
+            const old = child.key;
+            const itemData = this.getItemData(forNode, s, data);
+            const key = forNode.getKey(itemData);
+            if (old === key) {
+              newChildren[s] = child;
+              this.reuseForItem(child, arr[s], itemExp, s, indexName);
+              s++;
             } else {
-              Object.assign(child.data, itemExp(arr[i]));
+              break;
             }
           }
-          forNode.children = newChildren;
+          // 去尾
+          while (s <= e1 && s <= e2) {
+            const child = children[e1];
+            const old = child.key;
+            const itemData = this.getItemData(forNode, e2, data);
+            const key = forNode.getKey(itemData);
+            if (old === key) {
+              newChildren[e2] = child;
+              this.reuseForItem(child, arr[e2], itemExp, e2, indexName);
+              e1--;
+              e2--;
+            } else {
+              break;
+            }
+          }
+          // 纯尾增
+          if (s > e1) {
+            if (s <= e2) {
+              const lastAfter = children.at(-1)?.realAfter || forNode.realBefore;
+              for (let i = e2; i >= s; i--) {
+                this.insertForItem(forNode, i, data, newChildren, lastAfter, snapshotForUpdate);
+              }
+            }
+          }
+          // 纯尾删
+          else if (s > e2) {
+            if (s <= e1) {
+              for (let i = e1; i >= s; i--) {
+                this.removeForItem(children, i);
+              }
+            }
+          }
+          // 混合
+          else {
+            let s1 = s,
+              s2 = s;
+            const mixLen = e2 - s2 + 1;
+            /** key -> 旧 index */
+            const key2new = new Map<any, number>();
+            for (let i = s2; i <= e2; i++) {
+              // TODO: 这里只求 key 可以不用响应式
+              const itemData = this.getItemData(forNode, i, data);
+              const key = forNode.getKey(itemData);
+              key2new.set(key, i);
+            }
+            /*----------------- 构建 new2oldI -----------------*/
+            let maxIncNewI = -1;
+            let hasMove = false;
+            const new2oldI = new Array<number>(mixLen).fill(-1);
+            for (let i = s1; i <= e1; i++) {
+              const key = children[i].key;
+              const newI = key2new.get(key);
+              // 不在新列表中，删除
+              if (newI == null) {
+                this.removeForItem(children, i);
+                continue;
+              }
+              const child = children[i];
+              // 复用
+              newChildren[newI] = child;
+              this.reuseForItem(child, arr[newI], itemExp, newI, indexName);
+              new2oldI[newI - s2] = i;
+              // 剩余的 key 是新增
+              key2new.delete(key);
+              // 如果 newI 比已处理的最大 newI 要小，说明索引较小的项反而靠后，即发生移动
+              if (newI < maxIncNewI) {
+                hasMove = true;
+              } else {
+                maxIncNewI = newI;
+              }
+            }
+            /*----------------- 纯增删 -----------------*/
+            if (!hasMove) {
+              // 按顺序从前往后插入即可
+              key2new.forEach((i, key) => {
+                const before = i === 0 ? forNode.realBefore : newChildren[i - 1].realAfter;
+                this.insertForItem(forNode, i, data, newChildren, before, snapshotForUpdate);
+              });
+            } else {
+              /*----------------- 增删移 -----------------*/
+              const incI = macInc(new2oldI),
+                incLen = incI.length;
+              /** p1 表示新数组中的索引 */
+              let p1: number,
+                /** p2 表示最长递增子序列的索引 */
+                p2: number;
+              // 从 s2 开始对比
+              for (p1 = s2, p2 = 0; p1 <= e2; p1++) {
+                const oldI = new2oldI[p1];
+                /** 新增 */
+                if (oldI === -1) {
+                  const before = p1 === 0 ? forNode.realBefore : newChildren[p1 - 1].realAfter;
+                  this.insertForItem(forNode, p1, data, newChildren, before, snapshotForUpdate);
+                  continue;
+                }
+
+                /** 锚点在 new2oldI 组中的索引 */
+                const staticIdx = incI[p2] + s2;
+                // 匹配到锚点，复用节点，已在构建 new2oldI 时完成
+                if (p1 === staticIdx) {
+                  p2 <= incLen && p2++;
+                  continue;
+                }
+
+                // p1 点位需要移动, 数据复用在 new2oldI 构建时已完成，这里处理 dom 移动即可
+                let before = p1 === 0 ? forNode.realBefore : newChildren[p1 - 1].realAfter;
+                const child = newChildren[p1];
+
+                const { realBefore, realAfter, realParent } = child;
+
+                let point = realBefore,
+                  next: any;
+                do {
+                  next = this.nextSib(point);
+                  this.insertAfter(realParent, point, before)
+                  // this.handleInsert(realParent, point, before);
+                  before = point;
+                  if (point === realAfter) break;
+                  point = next;
+                } while (true);
+              }
+            }
+          }
         }
+        forNode.children = newChildren;
       }
       isFirstRender = false;
+      setPulling(prevCtx);
+
+      return isDestroy => {
+        if (isDestroy) {
+          for (let i = 0; i < forNode.children.length; i++) {
+            const item = forNode.children[i];
+            item.effect.dispose();
+          }
+        }
+      };
     });
     return forNode.children[0] || forNode;
+  }
+
+  insertForItem(
+    forNode: ForNode,
+    i: number,
+    parentData: any,
+    newChildren: ForItemNode[],
+    before: any,
+    snapshotForUpdate: any
+  ) {
+    const item = this.createForItem(forNode, i, parentData);
+    newChildren[i] = item;
+    let realAfter = this.createAnchor('for-item-after');
+    this.handleInsert(forNode.realParent, realAfter, before);
+
+    let realBefore = this.createAnchor('for-item-before');
+    this.handleInsert(forNode.realParent, realBefore, before);
+
+    item.realBefore = realBefore;
+    item.realAfter = realAfter;
+
+    this.tokenizer = forNode.owner.tokenizer;
+    /**
+     * resume 后 token = null, 下个字符是 \n
+     */
+    this.tokenizer.resume(snapshotForUpdate);
+    // 解析到缩进小于 base 时自动 eof
+    this.tokenizer.useDedentAsEof = false;
+    runWithPulling(() => {
+      this.program(forNode.realParent, forNode.owner, realBefore, item);
+    }, item.effect);
+  }
+
+  removeForItem(children: ForItemNode[], i: number) {
+    const child = children[i];
+    this.removeLogicNode(child);
+    this.remove(child.realBefore);
+    this.remove(child.realAfter);
+    // 释放删除项 effect
+    child.effect.dispose();
+  }
+
+  reuseForItem(child: ForItemNode, data: any, itemExp: string | ((value: any) => any), i: number, indexName?: string) {
+    if (typeof itemExp === 'string') {
+      child.data[itemExp] = data;
+      if(indexName) {
+        child.data[indexName] = i;
+      }
+    }
   }
 
   forItemId = 0;
   createForItem(forNode: ForNode, i: number, parentData: any) {
     let forItemNode: ForItemNode;
+    let data: Record<any, any>;
     /**
      * 考虑到 effect 是嵌套的，这种情况每次 forNodeEffect 更新会导致上次产生的内部 setPropsEffect 被自动释放
      * 这是响应式 effect 嵌套的默认特性
@@ -492,9 +674,26 @@ export class Interpreter {
     runWithPulling(() => {
       scope.get();
     }, null);
+    // 考虑到生成每项数据需要依赖原始响应式数组，因此无法放在 scope 里
+    // 使得 for effect 依赖原响应式数组，每一项
+    data = this.getItemData(forNode, i, parentData);
+    forItemNode = {
+      id: this.forItemId++,
+      __logicType: FakeType.ForItem,
+      realParent: null,
+      realBefore: null,
+      realAfter: null,
+      forNode,
+      key: forNode.getKey?.(data),
+      effect: null,
+      data
+    };
+    forItemNode.effect = scope;
+    return forItemNode;
+  }
 
-    // 考虑到生成每项数据需要依赖原始数组，因此无法放在 scope 里
-    const { arr, itemExp, indexName, getKey } = forNode;
+  getItemData(forNode: ForNode, i: number, parentData: any) {
+    const { arr, itemExp, indexName, vars, arrSignal } = forNode;
     let data: Record<any, any>;
     if (typeof itemExp === 'string') {
       data = deepSignal(
@@ -509,28 +708,17 @@ export class Interpreter {
         getPulling()
       );
     } else {
-      const rawData = itemExp(arr[i]);
-      if (indexName) {
-        rawData[indexName] = i;
+      data = deepSignal(indexName ? { [indexName]: i } : {}, getPulling());
+      const computedData = new Computed(() => itemExp(arrSignal.get()[i]));
+      const cells = data[Keys.Meta].cells;
+      for (let i = 0; i < vars.length; i++) {
+        const name = vars[i];
+        cells.set(name, new Computed(() => computedData.get()[name]));
       }
-      data = deepSignal(rawData, getPulling());
     }
 
     Object.setPrototypeOf(data, parentData);
-
-    forItemNode = {
-      id: this.forItemId++,
-      __logicType: FakeType.ForItem,
-      realParent: null,
-      realBefore: null,
-      realAfter: null,
-      forNode,
-      key: getKey?.(data),
-      effect: null,
-      data
-    };
-    forItemNode.effect = scope;
-    return forItemNode;
+    return data;
   }
 
   getData() {
@@ -910,7 +1098,7 @@ export class Interpreter {
   remove(node: any, parent?: any, prev?: any) {
     return this.defaultRemove(node, parent, prev);
   }
-  // TODO: 默认改成 prevItem
+  
   defaultRemove(node: any, parent: any, prevSibling: any) {
     const next = node.nextSibling;
     if (prevSibling) {

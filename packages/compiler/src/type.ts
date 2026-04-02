@@ -1,4 +1,4 @@
-import { Dispose, Effect, Scope, Signal, SignalNode, Store } from 'aoye';
+import { Computed, Dispose, Effect, Scope, Signal, SignalNode, Store } from 'aoye';
 import type { Tokenizer } from './tokenizer';
 import type { Interpreter } from './terp';
 import { MultiTypeStack } from './typed';
@@ -127,10 +127,12 @@ export type ForNode = LogicNode & {
   indexName?: string;
   getKey?: (data: any) => any;
   arr: any[];
+  arrSignal: Signal<any[]>|Computed<any[]>;
   effect: Effect;
   i: number;
   owner: ComponentNode | FragmentNode;
   prevSibling: any;
+  vars: string[];
 };
 
 export type ForItemNode = LogicNode & {

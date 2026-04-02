@@ -275,36 +275,27 @@ export class Tokenizer {
    * for arr ; item index; item.key
    * @returns {boolean} 是否含有 key
    */
-  public forLoopSubExp() {
+  public jsExp() {
     this.token = null;
     let value = '';
-    let count = 0;
     while (1) {
       const char = this.code[this.i];
-      const isSemicolon = char === ';';
-      if (isSemicolon || char === '\n') {
-        value = value.trim();
-        if (!this.token) {
-          this.setToken(TokenType.Identifier, value);
-        } else {
-          this.waitingTokens.push({
-            type: TokenType.Identifier,
-            typeName: TokenType[TokenType.Identifier],
-            value
-          });
-        }
-        value = '';
-        count++;
-        if (count > 3) {
-          throw SyntaxError(`for 循环最多可包含三个表达式, 分别为 arr ; item index [; key]`);
-        }
-        // 匹配到回车退出
-        if (!isSemicolon) return count === 3;
+      if (char === ';' || char === '\n') {
+        this.setToken(TokenType.Identifier, value.trim());
+        return this.token;
       } else {
         value += char;
       }
       this.i++;
     }
+  }
+
+  public peekChar() {
+    let i = this.i;
+    while (this.code[i] === ' ' || this.code[i] === '\t') {
+      i++;
+    }
+    return this.code[i];
   }
 
   private assignment() {

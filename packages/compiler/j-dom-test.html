@@ -174,17 +174,17 @@
   }
 
 
-  class TestFor extends Store {
+  class TestFor1 extends Store {
     arr = [
-      1,
-      2,
-      3
+      { value: 1 },
+      { value: 2 },
+      { value: 3 }
     ]
     show = true
     value = ''
     onkeyup = (e) => {
       if (e.keyCode === 13) {
-        this.arr.push(this.value)
+        this.arr.push({ value: this.value })
         this.value = ''
       }
     }
@@ -197,7 +197,7 @@
     }
 
     updateItem = (i, value) => {
-      this.arr[i] = value
+      this.arr[i] = { value }
     }
 
     ui = bobe`
@@ -206,7 +206,7 @@
       for arr; item i
         div style="display: flex; align-items: center;"
           h1 onclick={() => delItem(i)}
-            {item}
+            {item.value}
           input type="text"  oninput={(e) => updateItem(i, e.target.value)} 
       if show    
         div
@@ -253,8 +253,54 @@
     `
   }
 
+  class Keyed extends Store {
+    arr = [
+      { value: 1, id: 1 },
+      { value: 2, id: 2 },
+      { value: 3, id: 3 }
+    ]
+    show = true
+    value = ''
+    onkeyup = (e) => {
+      if (e.keyCode === 13) {
+        this.arr.push({ value: this.value, id: Date.now() })
+        this.value = ''
+      }
+    }
+    oninput = (e) => {
+      this.value = e.target.value
+    }
+
+    delItem = (i) => {
+      this.arr.splice(i, 1)
+    }
+
+    updateItem = (i, value) => {
+      // this.arr[i].value = value;
+      // this.arr[i] = { value, id: Date.now() }
+      this.arr = [
+        { value: 3, id: 3 },
+        { value: 1, id: 1 },
+        { value: 2, id: 2 }
+      ]
+    }
+
+    ui = bobe`
+      h2 text="测试"
+      input value={value} oninput={oninput} onkeyup={onkeyup}
+      for arr; item i; item.id
+        div style="display: flex; align-items: center;"
+          h1 onclick={() => delItem(i)}
+            {item.value}
+          input type="text"  oninput={(e) => updateItem(i, e.target.value)} 
+      if show    
+        div
+          {'哈哈哈'}  
+    `
+  }
+
   const root2 = document.getElementById('root')
-  render(TestIf, root2)
+  render(Keyed, root2)
   window.cel = (obj, key) => {
     const cells = obj['__AOYE_META'].cells;
     return cells.get(key);
