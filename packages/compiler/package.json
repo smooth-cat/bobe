@@ -28,11 +28,11 @@
   "author": "smooth-cat",
   "repository": {
     "type": "git",
-    "url": "git+git@github.com:smooth-cat/bobe.git"
+    "url": "git+git@github.com:bobe-js/bobe.git"
   },
   "bugs": {
-    "url": "https://github.com/smooth-cat/bobe/issues"
+    "url": "https://github.com/bobe-js/bobe/issues"
   },
-  "homepage": "https://github.com/smooth-cat/bobe#readme",
+  "homepage": "https://github.com/bobe-js/bobe#readme",
   "description": "A bobe template runtime compiler"
 }
